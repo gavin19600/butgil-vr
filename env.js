@@ -1,6 +1,9 @@
 // 붓길 VR — 궁궐 마당의 과거시험장 배경
 import * as THREE from 'three';
 
+// 360도 사진 설정: yawDeg 를 바꾸면 사진을 좌우로 돌려 정면에 올 건물을 맞출 수 있음
+const PANO = { file: 'pano.jpg', yawDeg: 0 };
+
 const { Vector3, Quaternion, Euler, Matrix4 } = THREE;
 const mk = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; };
 const lerp = THREE.MathUtils.lerp;
@@ -17,11 +20,13 @@ export function buildEnvironment(scene, renderer) {
   };
   const rep = (base, rx, ry = 1) => { const t = base.clone(); t.repeat.set(rx, ry); t.needsUpdate = true; return t; };
   const std = (color, extra = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.85, ...extra });
-  const add = (geo, mat, x = 0, y = 0, z = 0, parent = scene) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); parent.add(m); return m; };
-  const inst = (geo, mat, n) => { const m = new THREE.InstancedMesh(geo, mat, n); m.frustumCulled = false; scene.add(m); return m; };
+  const root = new THREE.Group(); scene.add(root);      // 3D 배경 전체 (사진 배경일 때 숨김)
+  const add = (geo, mat, x = 0, y = 0, z = 0, parent = root) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); parent.add(m); return m; };
+  const inst = (geo, mat, n) => { const m = new THREE.InstancedMesh(geo, mat, n); m.frustumCulled = false; root.add(m); return m; };
   const tmp = new Matrix4();
 
-  scene.fog = new THREE.Fog(0xd5e4ef, 45, 130);
+  const fog = new THREE.Fog(0xd5e4ef, 45, 130);
+  scene.fog = fog;
 
   /* ---------------- 하늘 · 구름 · 산 ---------------- */
   {
@@ -53,7 +58,7 @@ export function buildEnvironment(scene, renderer) {
     ridge(48, [[5, 9, 2.1], [11, 6, 0.9], [19, 3, 1.2], [31, 1.5, 0.4]], '#7d9a86', [[0.68, 30, 700], [0.4, 22, 500]]);
     ridge(26, [[9, 5, 0.2], [17, 3, 1.1], [41, 1.5, 2.2]], '#5f8062', []);
     const sky = new THREE.Mesh(new THREE.SphereGeometry(75, 48, 24), new THREE.MeshBasicMaterial({ map: tex(c), side: THREE.BackSide, fog: false }));
-    scene.add(sky); scene.background = null;
+    root.add(sky); scene.background = null;
   }
 
   /* ---------------- 텍스처 ---------------- */
@@ -219,7 +224,7 @@ export function buildEnvironment(scene, renderer) {
   document.fonts.load('700 170px "Noto Serif KR"', '科場').then(drawSign).catch(() => {});
 
   function hall({ w, d, h, plat, bays, roofH, x, z, ry, upper = false, lift = 0.7 }) {
-    const grp = new THREE.Group(); grp.position.set(x, 0, z); grp.rotation.y = ry; scene.add(grp);
+    const grp = new THREE.Group(); grp.position.set(x, 0, z); grp.rotation.y = ry; root.add(grp);
     const gm = (rx, ry2 = 1) => std(0xffffff, { map: rep(graniteTex, rx, ry2) });
     let y0 = 0;
     if (upper) { add(new THREE.BoxGeometry(w + 8, 0.5, d + 8), gm((w + 8) / 2, 0.5), 0, 0.25, 0, grp); y0 = 0.5; }
@@ -396,7 +401,7 @@ export function buildEnvironment(scene, renderer) {
     add(new THREE.BoxGeometry(0.17, 0.11, 0.09), blackM, 0, 1.75, 0.04, g);
     add(new THREE.BoxGeometry(0.44, 0.035, 0.07), blackM, 0, 1.67, 0.08, g);
     const s = add(new THREE.PlaneGeometry(1.1, 1.1), shadowM, 0, 0.018, 0, g); s.rotation.x = -Math.PI / 2;
-    scene.add(g); return g;
+    root.add(g); return g;
   }
   [[-5, 0xa8322a], [-3, 0x2c4f8f], [-1, 0xa8322a], [1, 0xa8322a], [3, 0x2c4f8f], [5, 0xa8322a]].forEach(([x, c]) => {
     const o = official(c); o.position.set(x, 0, -15.4); o.rotation.y = Math.PI;             // 유생들을 바라봄
@@ -426,6 +431,7 @@ export function buildEnvironment(scene, renderer) {
 
   /* ---------------- 매 프레임 ---------------- */
   function tick(now) {
+    if (!root.visible) return;
     const t = now / 1000;
     flags.forEach(f => {
       const pa = f.m.geometry.attributes.position;
@@ -467,5 +473,34 @@ export function buildEnvironment(scene, renderer) {
     } catch (e) {}
   }
 
-  return { tick, startAmbience };
+  /* ---------------- 360도 사진 배경 ----------------
+     같은 폴더에 pano.jpg (가로:세로 = 2:1 인 360도 사진)를 두면 자동으로 불러옵니다. */
+  const api = { tick, startAmbience, setPhoto, hasPhoto: false, onPhotoReady: null };
+  let photoMesh = null;
+  function setPhoto(on) {
+    const use = !!(on && photoMesh);
+    root.visible = !use; if (photoMesh) photoMesh.visible = use;
+    scene.fog = use ? null : fog;
+    return use;
+  }
+  const img = new Image();
+  img.onload = () => {
+    const max = Math.min(renderer.capabilities.maxTextureSize, 8192);
+    let src = img;
+    if (img.width > max) {                                // 기기가 감당할 크기로 줄임
+      const c = mk(max, Math.round(max * img.height / img.width));
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); src = c;
+    }
+    const t = new THREE.Texture(src); t.colorSpace = THREE.SRGBColorSpace;
+    t.wrapS = THREE.RepeatWrapping; t.repeat.x = -1;      // 구 안쪽에서 봐도 좌우가 뒤집히지 않게
+    t.needsUpdate = true;
+    photoMesh = new THREE.Mesh(new THREE.SphereGeometry(60, 64, 32), new THREE.MeshBasicMaterial({ map: t, side: THREE.BackSide, fog: false }));
+    photoMesh.position.y = 1.4; photoMesh.rotation.y = THREE.MathUtils.degToRad(90 + PANO.yawDeg);   // 사진 가운데가 정면
+    photoMesh.visible = false; scene.add(photoMesh);
+    api.hasPhoto = true; if (api.onPhotoReady) api.onPhotoReady();
+  };
+  img.onerror = () => {};
+  img.src = PANO.file;
+
+  return api;
 }

@@ -194,25 +194,25 @@ const LANG_NAME = { ko:'한국어', en:'English', vi:'Tiếng Việt', es:'Espa�
 const T = {
   ko: { jamo:'한글 자모', word:'낱말 쓰기', hanja:'한자', dict:'받아쓰기', watch:'획순 보기', trace:'따라 쓰기', test:'혼자 쓰기', free:'자유 쓰기',
         clear:'지우기', listen:'🔊 듣기', prev:'◀ 이전', next:'다음 ▶', desk:'책상에 놓기', easel:'세워 놓기', up:'높이 ▲', down:'높이 ▼',
-        stroke:'획', strokes:'획', best:'최고', q:'문제', grade:n => `${n}학년`,
+        bgPhoto:'사진 배경', bg3d:'3D 배경', stroke:'획', strokes:'획', best:'최고', q:'문제', grade:n => `${n}학년`,
         start:'붓끝을 종이에 대고 써 보세요', good:'좋아요! 다음 획', dir:'방향이 반대예요', order:'획순이 달라요', shape:'그 획을 다시 써 보세요',
         done:'완성! 잘했어요', watchMsg:'획순을 잘 보세요', freeMsg:'마음껏 써 보세요', hint:'힌트를 보여 줄게요',
         dictMsg:'잘 듣고 받아 쓰세요', nextSyl:'좋아요! 다음 글자' },
   en: { jamo:'Hangul Letters', word:'Words', hanja:'Hanja', dict:'Dictation', watch:'Watch', trace:'Trace', test:'On my own', free:'Free',
         clear:'Clear', listen:'🔊 Listen', prev:'◀ Prev', next:'Next ▶', desk:'Lay flat', easel:'Stand up', up:'Height ▲', down:'Height ▼',
-        stroke:'Stroke', strokes:'strokes', best:'Best', q:'No.', grade:n => `Grade ${n}`,
+        bgPhoto:'Photo view', bg3d:'3D view', stroke:'Stroke', strokes:'strokes', best:'Best', q:'No.', grade:n => `Grade ${n}`,
         start:'Touch the paper with the brush tip', good:'Good! Next stroke', dir:'Wrong direction', order:'Wrong stroke order', shape:'Try that stroke again',
         done:'Complete! Well done', watchMsg:'Watch the stroke order', freeMsg:'Write freely', hint:'Here is a hint',
         dictMsg:'Listen and write', nextSyl:'Good! Next syllable' },
   vi: { jamo:'Chữ cái Hangul', word:'Viết từ', hanja:'Chữ Hán', dict:'Nghe viết', watch:'Xem nét', trace:'Tô theo', test:'Tự viết', free:'Tự do',
         clear:'Xóa', listen:'🔊 Nghe', prev:'◀ Trước', next:'Sau ▶', desk:'Đặt nằm', easel:'Dựng đứng', up:'Cao ▲', down:'Thấp ▼',
-        stroke:'Nét', strokes:'nét', best:'Tốt nhất', q:'Câu', grade:n => `Lớp ${n}`,
+        bgPhoto:'Nền ảnh', bg3d:'Nền 3D', stroke:'Nét', strokes:'nét', best:'Tốt nhất', q:'Câu', grade:n => `Lớp ${n}`,
         start:'Chạm đầu bút vào giấy để viết', good:'Tốt lắm! Nét tiếp theo', dir:'Sai hướng nét', order:'Sai thứ tự nét', shape:'Hãy viết lại nét đó',
         done:'Hoàn thành! Giỏi lắm', watchMsg:'Hãy xem thứ tự nét', freeMsg:'Hãy viết tự do', hint:'Đây là gợi ý',
         dictMsg:'Nghe và viết lại', nextSyl:'Tốt! Chữ tiếp theo' },
   es: { jamo:'Letras hangul', word:'Palabras', hanja:'Hanja', dict:'Dictado', watch:'Ver trazos', trace:'Calcar', test:'Sin guía', free:'Libre',
         clear:'Borrar', listen:'🔊 Oír', prev:'◀ Anterior', next:'Siguiente ▶', desk:'Acostar', easel:'Levantar', up:'Subir ▲', down:'Bajar ▼',
-        stroke:'Trazo', strokes:'trazos', best:'Mejor', q:'N.º', grade:n => `${n}.º grado`,
+        bgPhoto:'Fondo foto', bg3d:'Fondo 3D', stroke:'Trazo', strokes:'trazos', best:'Mejor', q:'N.º', grade:n => `${n}.º grado`,
         start:'Toca el papel con la punta del pincel', good:'¡Bien! Siguiente trazo', dir:'Dirección incorrecta', order:'Orden de trazos incorrecto', shape:'Intenta ese trazo otra vez',
         done:'¡Completado! Muy bien', watchMsg:'Mira el orden de los trazos', freeMsg:'Escribe libremente', hint:'Aquí tienes una pista',
         dictMsg:'Escucha y escribe', nextSyl:'¡Bien! Siguiente sílaba' },
@@ -222,7 +222,7 @@ const FONT = '"Noto Serif", "Noto Serif KR", serif';
 /* =========================================================
    3. 상태 / 저장
    ========================================================= */
-const S = { tab:'jamo', grade:1, idx:0, ci:0, mode:'trace', lang:'ko', layout:'desk', deskH:0.72,
+const S = { tab:'jamo', grade:1, idx:0, ci:0, mode:'trace', lang:'ko', layout:'desk', deskH:0.72, bg:'photo',
             progress:0, mistakes:0, streakFail:0, done:false, stars:0, nextAt:0, msgKey:'start', msgColor:'#3b2a1c' };
 let best = {};
 try { best = JSON.parse(localStorage.getItem('butgil.best') || '{}'); } catch (e) {}
@@ -231,7 +231,7 @@ if (!LANGS.includes(S.lang)) S.lang = 'ko';
 function save() {
   try {
     localStorage.setItem('butgil.best', JSON.stringify(best));
-    localStorage.setItem('butgil.settings', JSON.stringify({ lang:S.lang, layout:S.layout, deskH:S.deskH }));
+    localStorage.setItem('butgil.settings', JSON.stringify({ lang:S.lang, layout:S.layout, deskH:S.deskH, bg:S.bg }));
   } catch (e) {}
 }
 const isDict = () => S.tab === 'dict';
@@ -420,8 +420,10 @@ function drawCtrl() {
   if (isDict()) add(20, 676, 984, 92, t.listen, 'listen', false, 42);
   else ['watch','trace','test','free'].forEach((m, i) => add(20 + i*248, 676, 236, 92, t[m], 'mode:'+m, S.mode === m, 36));
   ['clear','listen','prev','next'].forEach((a, i) => add(20 + i*248, 784, 236, 92, t[a], a, false, 36));
-  [[S.layout === 'desk' ? t.easel : t.desk, 'layout'], [t.up, 'up'], [t.down, 'down'], ['🌐 ' + LANG_NAME[S.lang], 'lang']]
-    .forEach(([l, a], i) => add(20 + i*248, 892, 236, 92, l, a, false, 34));
+  const opts = [[S.layout === 'desk' ? t.easel : t.desk, 'layout'], [t.up, 'up'], [t.down, 'down'], ['🌐 ' + LANG_NAME[S.lang], 'lang']];
+  if (env.hasPhoto) opts.push([S.bg === 'photo' ? t.bg3d : t.bgPhoto, 'bg']);
+  const ow = (984 - (opts.length - 1) * 12) / opts.length;
+  opts.forEach(([l, a], i) => add(20 + i*(ow + 12), 892, ow, 92, l, a, false, 32));
   btns.forEach((b, i) => {
     const hov = hoverSet.has(i);
     g.fillStyle = b.active ? '#c9452f' : (hov ? '#fff3d6' : '#efe1c2'); rr(g, b.x, b.y, b.w, b.h, 14); g.fill();
@@ -500,6 +502,7 @@ const canvasTex = (cv, repeat) => {
 const std = (color, extra = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.85, ...extra });
 
 const env = buildEnvironment(scene, renderer);
+env.onPhotoReady = () => { env.setPhoto(S.bg === 'photo'); ctrlDirty = true; };
 
 // 서안(책상)
 const desk = new THREE.Group(); scene.add(desk);
@@ -676,6 +679,7 @@ function act(a) {
   else if (a === 'layout') { S.layout = S.layout === 'desk' ? 'easel' : 'desk'; layoutScene(); }
   else if (a === 'up') { S.deskH = Math.min(1.25, +(S.deskH + 0.04).toFixed(2)); layoutScene(); }
   else if (a === 'down') { S.deskH = Math.max(0.45, +(S.deskH - 0.04).toFixed(2)); layoutScene(); }
+  else if (a === 'bg') { S.bg = S.bg === 'photo' ? '3d' : 'photo'; env.setPhoto(S.bg === 'photo'); }
   else if (a === 'lang') S.lang = LANGS[(LANGS.indexOf(S.lang) + 1) % LANGS.length];
   if (say) speak(120);
   save(); ctrlDirty = infoDirty = paperDirty = true;
