@@ -6,12 +6,12 @@
 <title>붓길 VR</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@400;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif:wght@400;700&family=Noto+Serif+KR:wght@400;700&display=swap" rel="stylesheet">
 <style>
-  html, body { margin: 0; height: 100%; background: #1e1712; overflow: hidden; font-family: 'Noto Serif KR', serif; }
+  html, body { margin: 0; height: 100%; background: #9cc8ee; overflow: hidden; font-family: 'Noto Serif', 'Noto Serif KR', serif; }
   canvas { display: block; touch-action: none; }
-  #help { position: fixed; left: 12px; top: 12px; max-width: 520px; margin-right: 12px; color: #f3e7cf;
-          background: rgba(20,14,10,.75); padding: 10px 14px; border-radius: 10px; font-size: 14px; line-height: 1.55; }
+  #help { position: fixed; left: 12px; top: 12px; max-width: 540px; margin-right: 12px; color: #f3e7cf;
+          background: rgba(20,14,10,.78); padding: 10px 14px; border-radius: 10px; font-size: 14px; line-height: 1.55; }
   #help b { color: #ffd28a; }
 </style>
 <script type="importmap">
@@ -23,7 +23,7 @@
 </head>
 <body>
 <div id="help">
-  <b>붓길 VR</b> · 한글·한자 쓰기 프로토타입<br>
+  <b>붓길 VR</b> · 한글·한자 쓰기와 받아쓰기 (한국어 / English / Tiếng Việt / Español)<br>
   PC: 마우스로 종이에 쓰기 · 왼쪽 판의 버튼 클릭<br>
   Quest: 아래 <b>ENTER VR</b> → 붓끝(또는 검지 끝)을 종이에 대고 쓰기 · 버튼은 레이저로 가리키고 트리거(집기)
 </div>
@@ -68,78 +68,182 @@ const JAMO = {
   'ㅠ': [[[14,40],[86,40]], [[38,40],[38,72]], [[62,40],[62,72]]],
   'ㅡ': [[[12,50],[88,50]]],
   'ㅣ': [[[50,12],[50,88]]],
+  'ㅐ': [[[35,12],[35,88]], [[35,50],[60,50]], [[60,12],[60,88]]],
+  'ㅒ': [[[35,12],[35,88]], [[35,38],[60,38]], [[35,62],[60,62]], [[60,12],[60,88]]],
+  'ㅔ': [[[22,50],[45,50]], [[45,12],[45,88]], [[68,12],[68,88]]],
+  'ㅖ': [[[22,38],[45,38]], [[22,62],[45,62]], [[45,12],[45,88]], [[68,12],[68,88]]],
 };
+const PAIR = { 'ㄲ':'ㄱㄱ','ㄸ':'ㄷㄷ','ㅃ':'ㅂㅂ','ㅆ':'ㅅㅅ','ㅉ':'ㅈㅈ','ㄳ':'ㄱㅅ','ㄵ':'ㄴㅈ','ㄶ':'ㄴㅎ','ㄺ':'ㄹㄱ',
+               'ㄻ':'ㄹㅁ','ㄼ':'ㄹㅂ','ㄽ':'ㄹㅅ','ㄾ':'ㄹㅌ','ㄿ':'ㄹㅍ','ㅀ':'ㄹㅎ','ㅄ':'ㅂㅅ' };
+const MIX = { 'ㅘ':'ㅗㅏ','ㅙ':'ㅗㅐ','ㅚ':'ㅗㅣ','ㅝ':'ㅜㅓ','ㅞ':'ㅜㅔ','ㅟ':'ㅜㅣ','ㅢ':'ㅡㅣ' };
+const CHO  = [...'ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ'];
+const JUNG = [...'ㅏㅐㅑㅒㅓㅔㅕㅖㅗㅘㅙㅚㅛㅜㅝㅞㅟㅠㅡㅢㅣ'];
+const JONG = ['', ...'ㄱㄲㄳㄴㄵㄶㄷㄹㄺㄻㄼㄽㄾㄿㅀㅁㅂㅄㅅㅆㅇㅈㅊㅋㅌㅍㅎ'];
+const R_CHO  = ['g','kk','n','d','tt','r','m','b','pp','s','ss','','j','jj','ch','k','t','p','h'];
+const R_JUNG = ['a','ae','ya','yae','eo','e','yeo','ye','o','wa','wae','oe','yo','u','wo','we','wi','yu','eu','ui','i'];
+const R_JONG = ['','k','k','k','n','n','n','t','l','k','m','l','l','l','p','l','m','p','p','t','t','ng','t','t','k','t','p','t'];
+
+const place = (strokes, [x0,y0,x1,y1]) => strokes.map(s => s.map(([x,y]) => [x0 + x/100*(x1-x0), y0 + y/100*(y1-y0)]));
+function jamoStrokes(j) {                     // 겹자음·겹받침은 두 자모를 나란히
+  if (JAMO[j]) return JAMO[j];
+  const [a, b] = [...PAIR[j]];
+  return [...place(JAMO[a], [0,0,54,100]), ...place(JAMO[b], [46,0,100,100])];
+}
+function sylStrokes(ch) {                     // 한글 음절을 자모로 풀어 자리에 배치
+  const c = ch.charCodeAt(0) - 0xAC00;
+  const C = CHO[Math.floor(c / 588)], V = JUNG[Math.floor(c % 588 / 28)], F = JONG[c % 28];
+  const P = (j, box) => place(jamoStrokes(j), box);
+  if (MIX[V]) {
+    const [h, v] = [...MIX[V]];
+    return F ? [...P(C,[5,0,60,40]), ...P(h,[0,22,66,62]), ...P(v,[45,0,100,62]), ...P(F,[12,55,88,100])]
+             : [...P(C,[5,0,62,55]), ...P(h,[0,38,68,98]), ...P(v,[45,0,100,100])];
+  }
+  if ('ㅗㅛㅜㅠㅡ'.includes(V))
+    return F ? [...P(C,[20,0,80,38]), ...P(V,[5,28,95,63]), ...P(F,[15,55,85,100])]
+             : [...P(C,[15,2,85,55]), ...P(V,[5,40,95,100])];
+  return F ? [...P(C,[0,0,56,56]), ...P(V,[40,0,100,62]), ...P(F,[10,50,90,100])]
+           : [...P(C,[0,5,58,95]), ...P(V,[42,0,100,100])];
+}
+function romanize(word) {
+  return [...word].map(ch => {
+    const c = ch.charCodeAt(0) - 0xAC00;
+    return R_CHO[Math.floor(c / 588)] + R_JUNG[Math.floor(c % 588 / 28)] + R_JONG[c % 28];
+  }).join('-');
+}
+
+const HANJA_STROKES = {
+  '一': [[[12,50],[88,50]]],
+  '二': [[[25,35],[75,35]], [[12,68],[88,68]]],
+  '三': [[[22,25],[78,25]], [[28,50],[72,50]], [[12,78],[88,78]]],
+  '十': [[[12,48],[88,48]], [[50,10],[50,90]]],
+  '人': [[[52,12],[44,50],[18,86]], [[48,46],[66,68],[86,86]]],
+  '大': [[[14,38],[86,38]], [[52,12],[46,56],[16,88]], [[50,50],[66,70],[88,88]]],
+  '小': [[[50,12],[50,82],[42,76]], [[30,40],[18,66]], [[68,40],[84,66]]],
+  '口': [[[25,22],[25,80]], [[25,22],[75,22],[75,80]], [[25,78],[75,78]]],
+  '日': [[[28,12],[28,88]], [[28,12],[72,12],[72,88]], [[28,50],[72,50]], [[28,86],[72,86]]],
+  '目': [[[28,10],[28,90]], [[28,10],[72,10],[72,90]], [[28,36],[72,36]], [[28,62],[72,62]], [[28,88],[72,88]]],
+  '山': [[[50,10],[50,82]], [[22,36],[22,82],[78,82]], [[78,36],[78,82]]],
+  '川': [[[26,16],[24,56],[14,86]], [[50,22],[50,80]], [[76,14],[76,88]]],
+  '木': [[[12,36],[88,36]], [[50,10],[50,92]], [[48,38],[30,64],[12,80]], [[52,38],[70,62],[88,78]]],
+  '土': [[[25,42],[75,42]], [[50,14],[50,82]], [[12,82],[88,82]]],
+  '田': [[[20,18],[20,84]], [[20,18],[80,18],[80,84]], [[20,50],[80,50]], [[50,18],[50,82]], [[20,82],[80,82]]],
+  '上': [[[50,14],[50,82]], [[50,44],[76,44]], [[12,82],[88,82]]],
+  '下': [[[12,22],[88,22]], [[50,22],[50,90]], [[58,44],[74,58]]],
+  '中': [[[24,30],[24,68]], [[24,30],[76,30],[76,68]], [[24,66],[76,66]], [[50,8],[50,94]]],
+  '王': [[[20,20],[80,20]], [[26,50],[74,50]], [[50,20],[50,82]], [[12,82],[88,82]]],
+  '工': [[[20,24],[80,24]], [[50,24],[50,78]], [[12,78],[88,78]]],
+  '天': [[[22,22],[78,22]], [[14,46],[86,46]], [[50,22],[46,58],[16,88]], [[50,52],[66,72],[88,88]]],
+  '千': [[[72,12],[30,24]], [[12,46],[88,46]], [[50,20],[50,92]]],
+  '正': [[[16,16],[84,16]], [[50,16],[50,84]], [[50,50],[78,50]], [[26,44],[26,84]], [[10,84],[90,84]]],
+};
+const strokeCache = {};
+function strokesOf(ch) {
+  if (!strokeCache[ch]) strokeCache[ch] = HANJA_STROKES[ch] || JAMO[ch] || sylStrokes(ch);
+  return strokeCache[ch];
+}
+
 const JAMO_INFO = [
   ['ㄱ','기역','g / k'],['ㄴ','니은','n'],['ㄷ','디귿','d / t'],['ㄹ','리을','r / l'],['ㅁ','미음','m'],
-  ['ㅂ','비읍','b / p'],['ㅅ','시옷','s'],['ㅇ','이응','silent / ng'],['ㅈ','지읒','j'],['ㅊ','치읓','ch'],
+  ['ㅂ','비읍','b / p'],['ㅅ','시옷','s'],['ㅇ','이응','– / ng'],['ㅈ','지읒','j'],['ㅊ','치읓','ch'],
   ['ㅋ','키읔','k'],['ㅌ','티읕','t'],['ㅍ','피읖','p'],['ㅎ','히읗','h'],
   ['ㅏ','아','a'],['ㅑ','야','ya'],['ㅓ','어','eo'],['ㅕ','여','yeo'],['ㅗ','오','o'],
   ['ㅛ','요','yo'],['ㅜ','우','u'],['ㅠ','유','yu'],['ㅡ','으','eu'],['ㅣ','이','i'],
 ];
-// 자모를 상자 안에 배치해 음절을 조합
-const place = (strokes, [x0,y0,x1,y1]) => strokes.map(s => s.map(([x,y]) => [x0 + x/100*(x1-x0), y0 + y/100*(y1-y0)]));
-const syl = parts => parts.flatMap(([j, box]) => place(JAMO[j], box));
+const M_CONS = { ko:'자음 (닿소리)', en:'consonant', vi:'phụ âm', es:'consonante' };
+const M_VOW  = { ko:'모음 (홀소리)', en:'vowel', vi:'nguyên âm', es:'vocal' };
+const JAMO_ITEMS = JAMO_INFO.map(([text, name, rom], i) => ({ kind:'jamo', text, name, rom, speak:name, mean: i < 14 ? M_CONS : M_VOW }));
 
-const CHARS = {
-  jamo: JAMO_INFO.map(([ch, name, rom], i) => ({
-    ch, name, rom, speak: name, strokes: JAMO[ch],
-    ko: i < 14 ? '자음 (닿소리)' : '모음 (홀소리)', en: i < 14 ? 'consonant' : 'vowel',
-  })),
-  syl: [
-    { ch:'가', name:'가', rom:'ga',   ko:'ㄱ + ㅏ',     en:'g + a',      speak:'가', strokes: syl([['ㄱ',[0,5,58,95]], ['ㅏ',[42,0,100,100]]]) },
-    { ch:'나', name:'나', rom:'na',   ko:'ㄴ + ㅏ',     en:'n + a (I, me)', speak:'나', strokes: syl([['ㄴ',[2,5,60,95]], ['ㅏ',[42,0,100,100]]]) },
-    { ch:'한', name:'한', rom:'han',  ko:'ㅎ + ㅏ + ㄴ', en:'h + a + n',  speak:'한', strokes: syl([['ㅎ',[0,0,56,56]], ['ㅏ',[40,0,100,62]], ['ㄴ',[10,50,90,100]]]) },
-    { ch:'글', name:'글', rom:'geul', ko:'ㄱ + ㅡ + ㄹ', en:'g + eu + l (writing)', speak:'글', strokes: syl([['ㄱ',[10,0,90,40]], ['ㅡ',[5,30,95,60]], ['ㄹ',[15,50,85,100]]]) },
-  ],
-  hanja: [
-    { ch:'一', name:'한 일',     rom:'il',   ko:'하나',   en:'one',        strokes:[[[12,50],[88,50]]] },
-    { ch:'二', name:'두 이',     rom:'i',    ko:'둘',     en:'two',        strokes:[[[25,35],[75,35]], [[12,68],[88,68]]] },
-    { ch:'三', name:'석 삼',     rom:'sam',  ko:'셋',     en:'three',      strokes:[[[22,25],[78,25]], [[28,50],[72,50]], [[12,78],[88,78]]] },
-    { ch:'十', name:'열 십',     rom:'sip',  ko:'열',     en:'ten',        strokes:[[[12,48],[88,48]], [[50,10],[50,90]]] },
-    { ch:'人', name:'사람 인',   rom:'in',   ko:'사람',   en:'person',     strokes:[[[52,12],[44,50],[18,86]], [[48,46],[66,68],[86,86]]] },
-    { ch:'大', name:'큰 대',     rom:'dae',  ko:'크다',   en:'big',        strokes:[[[14,38],[86,38]], [[52,12],[46,56],[16,88]], [[50,50],[66,70],[88,88]]] },
-    { ch:'口', name:'입 구',     rom:'gu',   ko:'입',     en:'mouth',      strokes:[[[25,22],[25,80]], [[25,22],[75,22],[75,80]], [[25,78],[75,78]]] },
-    { ch:'日', name:'날 일',     rom:'il',   ko:'해, 날', en:'sun, day',   strokes:[[[28,12],[28,88]], [[28,12],[72,12],[72,88]], [[28,50],[72,50]], [[28,86],[72,86]]] },
-    { ch:'山', name:'메 산',     rom:'san',  ko:'산',     en:'mountain',   strokes:[[[50,10],[50,82]], [[22,36],[22,82],[78,82]], [[78,36],[78,82]]] },
-    { ch:'木', name:'나무 목',   rom:'mok',  ko:'나무',   en:'tree, wood', strokes:[[[12,36],[88,36]], [[50,10],[50,92]], [[48,38],[30,64],[12,80]], [[52,38],[70,62],[88,78]]] },
-    { ch:'中', name:'가운데 중', rom:'jung', ko:'가운데', en:'middle',     strokes:[[[24,30],[24,68]], [[24,30],[76,30],[76,68]], [[24,66],[76,66]], [[50,8],[50,94]]] },
-  ].map(c => ({ ...c, speak: c.name })),
-};
+const HANJA_ITEMS = [
+  ['一','한 일','il','하나','one','một','uno'], ['二','두 이','i','둘','two','hai','dos'], ['三','석 삼','sam','셋','three','ba','tres'],
+  ['十','열 십','sip','열','ten','mười','diez'], ['千','일천 천','cheon','천','thousand','nghìn','mil'], ['人','사람 인','in','사람','person','người','persona'],
+  ['大','큰 대','dae','크다','big','lớn','grande'], ['小','작을 소','so','작다','small','nhỏ','pequeño'], ['上','윗 상','sang','위','up, above','trên','arriba'],
+  ['下','아래 하','ha','아래','down, below','dưới','abajo'], ['中','가운데 중','jung','가운데','middle','giữa','centro'], ['口','입 구','gu','입','mouth','miệng','boca'],
+  ['目','눈 목','mok','눈','eye','mắt','ojo'], ['日','날 일','il','해, 날','sun, day','mặt trời, ngày','sol, día'], ['山','메 산','san','산','mountain','núi','montaña'],
+  ['川','내 천','cheon','시내','stream','sông','río'], ['木','나무 목','mok','나무','tree','cây','árbol'], ['土','흙 토','to','흙','earth','đất','tierra'],
+  ['田','밭 전','jeon','밭','field','ruộng','campo'], ['天','하늘 천','cheon','하늘','sky','trời','cielo'], ['王','임금 왕','wang','임금','king','vua','rey'],
+  ['工','장인 공','gong','만들다','craft, work','thợ, công','trabajo'], ['正','바를 정','jeong','바르다','correct','đúng','correcto'],
+].map(([text, name, rom, ko, en, vi, es]) => ({ kind:'hanja', text, name, rom, speak:name, mean:{ ko, en, vi, es } }));
 
-const T = {
-  ko: { jamo:'한글 자모', syl:'한글 글자', hanja:'한자', watch:'획순 보기', trace:'따라 쓰기', test:'혼자 쓰기', free:'자유 쓰기',
-        clear:'지우기', listen:'🔊 듣기', prev:'◀ 이전', next:'다음 ▶', desk:'책상에 놓기', easel:'세워 놓기',
-        up:'높이 ▲', down:'높이 ▼', lang:'English', stroke:'획', strokes:'획', best:'최고',
-        start:'붓끝을 종이에 대고 써 보세요', good:'좋아요! 다음 획', dir:'방향이 반대예요',
-        order:'획순이 달라요', shape:'그 획을 다시 써 보세요', done:'완성! 잘했어요',
-        watchMsg:'획순을 잘 보세요', freeMsg:'마음껏 써 보세요', hint:'힌트를 보여 줄게요' },
-  en: { jamo:'Hangul Jamo', syl:'Syllables', hanja:'Hanja', watch:'Watch', trace:'Trace', test:'Test', free:'Free',
-        clear:'Clear', listen:'🔊 Listen', prev:'◀ Prev', next:'Next ▶', desk:'Lay flat', easel:'Stand up',
-        up:'Height ▲', down:'Height ▼', lang:'한국어', stroke:'Stroke', strokes:'strokes', best:'Best',
-        start:'Touch the paper with the brush tip', good:'Good! Next stroke', dir:'Wrong direction',
-        order:'Wrong stroke order', shape:'Try that stroke again', done:'Complete! Well done',
-        watchMsg:'Watch the stroke order', freeMsg:'Write freely', hint:'Here is a hint' },
+// 학년별 낱말: [낱말, 영어, 베트남어, 스페인어]
+const WORD_SRC = {
+  1: [['나무','tree','cây','árbol'], ['우유','milk','sữa','leche'], ['바다','sea','biển','mar'], ['아기','baby','em bé','bebé'], ['나비','butterfly','con bướm','mariposa'],
+      ['모자','hat','cái mũ','sombrero'], ['포도','grape','quả nho','uva'], ['사자','lion','sư tử','león'], ['오리','duck','con vịt','pato'], ['다리','leg; bridge','chân; cây cầu','pierna; puente']],
+  2: [['학교','school','trường học','escuela'], ['친구','friend','bạn bè','amigo'], ['사랑','love','tình yêu','amor'], ['가족','family','gia đình','familia'], ['하늘','sky','bầu trời','cielo'],
+      ['동생','younger sibling','em','hermano menor'], ['연필','pencil','bút chì','lápiz'], ['공책','notebook','quyển vở','cuaderno'], ['책상','desk','bàn học','escritorio'], ['한글','Hangul','chữ Hangul','hangul']],
+  3: [['토끼','rabbit','con thỏ','conejo'], ['까치','magpie','chim ác là','urraca'], ['뿌리','root','rễ cây','raíz'], ['사과','apple','quả táo','manzana'], ['과자','snack','bánh kẹo','galleta'],
+      ['의자','chair','cái ghế','silla'], ['돼지','pig','con lợn','cerdo'], ['바퀴','wheel','bánh xe','rueda'], ['병원','hospital','bệnh viện','hospital'], ['꽃밭','flower garden','vườn hoa','jardín de flores']],
+  4: [['닭','chicken','con gà','pollo'], ['흙','soil','đất','tierra'], ['값','price','giá','precio'], ['여덟','eight','tám','ocho'], ['읽다','to read','đọc','leer'],
+      ['앉다','to sit','ngồi','sentarse'], ['많다','to be many','nhiều','ser mucho'], ['넓다','to be wide','rộng','ser ancho'], ['밟다','to step on','giẫm','pisar'], ['없다','to not exist','không có','no haber']],
+  5: [['깨끗이','cleanly','một cách sạch sẽ','limpiamente'], ['며칠','a few days','mấy ngày','unos días'], ['설거지','dishwashing','rửa bát','lavar los platos'], ['떡볶이','tteokbokki','bánh gạo cay','tteokbokki'], ['찌개','stew','món hầm','estofado'],
+      ['베개','pillow','cái gối','almohada'], ['눈곱','eye discharge','ghèn mắt','legaña'], ['돌멩이','pebble','hòn sỏi','piedrita'], ['무릎','knee','đầu gối','rodilla'], ['옛날','old days','ngày xưa','antaño']],
+  6: [['금세','in no time','ngay lập tức','enseguida'], ['왠지','somehow','không hiểu sao','por alguna razón'], ['웬일','what a surprise','chuyện gì vậy','qué sorpresa'], ['낫다','to recover','khỏi bệnh','mejorarse'], ['낳다','to give birth','sinh con','dar a luz'],
+      ['맞히다','to guess right','đoán đúng','acertar'], ['부치다','to send (mail)','gửi (thư)','enviar'], ['붙이다','to stick','dán','pegar'], ['가르치다','to teach','dạy','enseñar'], ['가리키다','to point at','chỉ vào','señalar']],
 };
-const FONT = '"Noto Serif KR", serif';
+const WORDS = {};
+for (const g in WORD_SRC) WORDS[g] = WORD_SRC[g].map(([text, en, vi, es]) => ({ kind:'word', text, name:text, rom:romanize(text), speak:text, mean:{ ko:'', en, vi, es } }));
+
+const sndId = t => [...t].map(c => c.codePointAt(0).toString(16)).join('-');
+window.BUTGIL_SOUNDS = [...JAMO_ITEMS, ...HANJA_ITEMS, ...Object.values(WORDS).flat()].map(it => [sndId(it.text), it.speak]);
 
 /* =========================================================
-   2. 상태 / 저장
+   2. 화면 언어
    ========================================================= */
-const S = { cat:'jamo', idx:0, mode:'trace', lang:'ko', layout:'desk', deskH:0.72,
-            progress:0, mistakes:0, streakFail:0, done:false, stars:0, msgKey:'start', msgColor:'#3b2a1c' };
+const LANGS = ['ko', 'en', 'vi', 'es'];
+const LANG_NAME = { ko:'한국어', en:'English', vi:'Tiếng Việt', es:'Español' };
+const T = {
+  ko: { jamo:'한글 자모', word:'낱말 쓰기', hanja:'한자', dict:'받아쓰기', watch:'획순 보기', trace:'따라 쓰기', test:'혼자 쓰기', free:'자유 쓰기',
+        clear:'지우기', listen:'🔊 듣기', prev:'◀ 이전', next:'다음 ▶', desk:'책상에 놓기', easel:'세워 놓기', up:'높이 ▲', down:'높이 ▼',
+        stroke:'획', strokes:'획', best:'최고', q:'문제', grade:n => `${n}학년`,
+        start:'붓끝을 종이에 대고 써 보세요', good:'좋아요! 다음 획', dir:'방향이 반대예요', order:'획순이 달라요', shape:'그 획을 다시 써 보세요',
+        done:'완성! 잘했어요', watchMsg:'획순을 잘 보세요', freeMsg:'마음껏 써 보세요', hint:'힌트를 보여 줄게요',
+        dictMsg:'잘 듣고 받아 쓰세요', nextSyl:'좋아요! 다음 글자' },
+  en: { jamo:'Hangul Letters', word:'Words', hanja:'Hanja', dict:'Dictation', watch:'Watch', trace:'Trace', test:'On my own', free:'Free',
+        clear:'Clear', listen:'🔊 Listen', prev:'◀ Prev', next:'Next ▶', desk:'Lay flat', easel:'Stand up', up:'Height ▲', down:'Height ▼',
+        stroke:'Stroke', strokes:'strokes', best:'Best', q:'No.', grade:n => `Grade ${n}`,
+        start:'Touch the paper with the brush tip', good:'Good! Next stroke', dir:'Wrong direction', order:'Wrong stroke order', shape:'Try that stroke again',
+        done:'Complete! Well done', watchMsg:'Watch the stroke order', freeMsg:'Write freely', hint:'Here is a hint',
+        dictMsg:'Listen and write', nextSyl:'Good! Next syllable' },
+  vi: { jamo:'Chữ cái Hangul', word:'Viết từ', hanja:'Chữ Hán', dict:'Nghe viết', watch:'Xem nét', trace:'Tô theo', test:'Tự viết', free:'Tự do',
+        clear:'Xóa', listen:'🔊 Nghe', prev:'◀ Trước', next:'Sau ▶', desk:'Đặt nằm', easel:'Dựng đứng', up:'Cao ▲', down:'Thấp ▼',
+        stroke:'Nét', strokes:'nét', best:'Tốt nhất', q:'Câu', grade:n => `Lớp ${n}`,
+        start:'Chạm đầu bút vào giấy để viết', good:'Tốt lắm! Nét tiếp theo', dir:'Sai hướng nét', order:'Sai thứ tự nét', shape:'Hãy viết lại nét đó',
+        done:'Hoàn thành! Giỏi lắm', watchMsg:'Hãy xem thứ tự nét', freeMsg:'Hãy viết tự do', hint:'Đây là gợi ý',
+        dictMsg:'Nghe và viết lại', nextSyl:'Tốt! Chữ tiếp theo' },
+  es: { jamo:'Letras hangul', word:'Palabras', hanja:'Hanja', dict:'Dictado', watch:'Ver trazos', trace:'Calcar', test:'Sin guía', free:'Libre',
+        clear:'Borrar', listen:'🔊 Oír', prev:'◀ Anterior', next:'Siguiente ▶', desk:'Acostar', easel:'Levantar', up:'Subir ▲', down:'Bajar ▼',
+        stroke:'Trazo', strokes:'trazos', best:'Mejor', q:'N.º', grade:n => `${n}.º grado`,
+        start:'Toca el papel con la punta del pincel', good:'¡Bien! Siguiente trazo', dir:'Dirección incorrecta', order:'Orden de trazos incorrecto', shape:'Intenta ese trazo otra vez',
+        done:'¡Completado! Muy bien', watchMsg:'Mira el orden de los trazos', freeMsg:'Escribe libremente', hint:'Aquí tienes una pista',
+        dictMsg:'Escucha y escribe', nextSyl:'¡Bien! Siguiente sílaba' },
+};
+const FONT = '"Noto Serif", "Noto Serif KR", serif';
+
+/* =========================================================
+   3. 상태 / 저장
+   ========================================================= */
+const S = { tab:'jamo', grade:1, idx:0, ci:0, mode:'trace', lang:'ko', layout:'desk', deskH:0.72,
+            progress:0, mistakes:0, streakFail:0, done:false, stars:0, nextAt:0, msgKey:'start', msgColor:'#3b2a1c' };
 let best = {};
 try { best = JSON.parse(localStorage.getItem('butgil.best') || '{}'); } catch (e) {}
 try { Object.assign(S, JSON.parse(localStorage.getItem('butgil.settings') || '{}')); } catch (e) {}
+if (!LANGS.includes(S.lang)) S.lang = 'ko';
 function save() {
   try {
     localStorage.setItem('butgil.best', JSON.stringify(best));
     localStorage.setItem('butgil.settings', JSON.stringify({ lang:S.lang, layout:S.layout, deskH:S.deskH }));
   } catch (e) {}
 }
-const cur = () => CHARS[S.cat][S.idx];
+const isDict = () => S.tab === 'dict';
+const items = () => S.tab === 'jamo' ? JAMO_ITEMS : (S.tab === 'hanja' || S.grade === 'h') ? HANJA_ITEMS : WORDS[S.grade];
+const curItem = () => items()[S.idx];
+const curChars = () => [...curItem().text];
+const curChar = () => curChars()[S.ci];
+const curStrokes = () => strokesOf(curChar());
+const mode = () => isDict() ? 'test' : S.mode;
+const bestKey = it => (isDict() ? 'd:' : '') + it.text;
 
 /* =========================================================
-   3. 기하 / 채점 도구
+   4. 기하 / 채점 도구
    ========================================================= */
 const dist = (a, b) => Math.hypot(a[0]-b[0], a[1]-b[1]);
 function pathLen(p) { let L = 0; for (let i = 1; i < p.length; i++) L += dist(p[i], p[i-1]); return L; }
@@ -174,7 +278,7 @@ function partial(p, f) {
 }
 
 /* =========================================================
-   4. 캔버스 텍스처 (종이 / 조작판 / 정보판)
+   5. 캔버스 텍스처 (종이 / 조작판 / 정보판)
    ========================================================= */
 const PX = 1024 / 100;
 const mkCanvas = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; };
@@ -241,9 +345,10 @@ function buildBase() {
     bc.beginPath(); bc.moveTo(a, b); bc.lineTo(c, d); bc.stroke();
   });
   bc.restore();
-  if (S.mode === 'trace' || S.mode === 'watch') {
-    const col = S.mode === 'trace' ? 'rgba(110,95,80,.30)' : 'rgba(110,95,80,.13)';
-    cur().strokes.forEach(s => polyline(bc, s, 10, col));
+  const m = mode();
+  if (m === 'trace' || m === 'watch') {
+    const many = curStrokes().length > 6, col = m === 'trace' ? 'rgba(110,95,80,.30)' : 'rgba(110,95,80,.13)';
+    curStrokes().forEach(s => polyline(bc, s, many ? 7 : 10, col));
   }
 }
 function redrawInk() {
@@ -261,74 +366,115 @@ function drawHint(s, n) {
   pc.fillStyle = '#fff'; pc.font = `700 ${3.2*PX}px ${FONT}`; pc.textAlign = 'center'; pc.textBaseline = 'middle';
   pc.fillText(String(n), s[0][0]*PX, s[0][1]*PX + 2);
 }
+const watchDurs = strokes => strokes.map(s => 0.3 + pathLen(s) / 65);
+const watchTotal = strokes => watchDurs(strokes).reduce((a, d) => a + d + 0.25, 0) + 1.0;
+function watchTick(now) {                     // 낱말은 한 글자씩 차례로 보여 줌
+  if ((now - watchStart) / 1000 < watchTotal(curStrokes())) return;
+  const n = curChars().length;
+  if (n > 1) { S.ci = (S.ci + 1) % n; buildBase(); infoDirty = true; }
+  watchStart = now;
+}
 function drawWatch(now) {
-  const strokes = cur().strokes, durs = strokes.map(s => 0.3 + pathLen(s) / 65);
-  const total = durs.reduce((a, d) => a + d + 0.25, 0) + 1.2;
-  let t = ((now - watchStart) / 1000) % total;
+  const strokes = curStrokes(), durs = watchDurs(strokes), w = strokes.length > 6 ? 6.5 : 9;
+  let t = (now - watchStart) / 1000;
   for (let k = 0; k < strokes.length; k++) {
-    if (t >= durs[k]) { polyline(pc, strokes[k], 9, '#1b1410'); numLabel(pc, strokes[k][0], k+1); t -= durs[k] + 0.25; if (t < 0) break; }
-    else { polyline(pc, partial(strokes[k], t / durs[k]), 9, '#1b1410'); numLabel(pc, strokes[k][0], k+1); break; }
+    if (t >= durs[k]) { polyline(pc, strokes[k], w, '#1b1410'); numLabel(pc, strokes[k][0], k+1); t -= durs[k] + 0.25; if (t < 0) break; }
+    else { polyline(pc, partial(strokes[k], t / durs[k]), w, '#1b1410'); numLabel(pc, strokes[k][0], k+1); break; }
   }
 }
 function compose(now) {
   pc.drawImage(baseCv, 0, 0); pc.drawImage(inkCv, 0, 0);
-  const ch = cur();
-  if (S.mode === 'watch') drawWatch(now);
-  else if (S.mode !== 'free' && !S.done && (S.mode === 'trace' || S.streakFail >= 2) && S.progress < ch.strokes.length)
-    drawHint(ch.strokes[S.progress], S.progress + 1);
+  const st = curStrokes(), m = mode();
+  if (m === 'watch') drawWatch(now);
+  else if (m !== 'free' && !S.done && !S.nextAt && (m === 'trace' || S.streakFail >= 2) && S.progress < st.length)
+    drawHint(st[S.progress], S.progress + 1);
   if (flash) drawStroke(pc, flash.st, 'rgba(200,40,30,.75)');
   paperTex.needsUpdate = true;
 }
 
 let btns = [], hoverSet = new Set(), hoverKey = '';
+const starStr = n => '★'.repeat(n) + '☆'.repeat(3 - n);
 function drawCtrl() {
   const g = cc, t = T[S.lang]; btns = [];
   g.fillStyle = '#3a2718'; g.fillRect(0, 0, 1024, 1024);
-  const add = (x, y, w, h, label, action, active, size) => btns.push({ x, y, w, h, label, action, active, size });
-  ['jamo','syl','hanja'].forEach((c, i) => add(20 + i*331, 20, 315, 96, t[c], 'cat:'+c, S.cat === c, 42));
-  CHARS[S.cat].forEach((c, i) => btns.push({ x: 20 + (i%6)*164, y: 136 + Math.floor(i/6)*132, w: 156, h: 128,
-    label: c.ch, action: 'char:'+i, active: i === S.idx, size: 72, cell: true, stars: best[c.ch] || 0 }));
-  ['watch','trace','test','free'].forEach((m, i) => add(20 + i*248, 676, 236, 92, t[m], 'mode:'+m, S.mode === m, 38));
-  ['clear','listen','prev','next'].forEach((a, i) => add(20 + i*248, 784, 236, 92, t[a], a, false, 38));
-  [[S.layout === 'desk' ? t.easel : t.desk, 'layout'], [t.up, 'up'], [t.down, 'down'], [t.lang, 'lang']]
-    .forEach(([l, a], i) => add(20 + i*248, 892, 236, 92, l, a, false, 36));
+  const add = (x, y, w, h, label, action, active, size, extra = {}) => btns.push({ x, y, w, h, label, action, active, size, ...extra });
+  ['jamo','word','hanja','dict'].forEach((c, i) => add(20 + i*248, 16, 236, 84, t[c], 'tab:'+c, S.tab === c, 38));
+  let gy = 112;
+  if (S.tab === 'word' || isDict()) {
+    const subs = [1,2,3,4,5,6].map(n => [t.grade(n), 'grade:'+n, S.grade === n]);
+    if (isDict()) subs.push([t.hanja, 'grade:h', S.grade === 'h']);
+    const w = (984 - (subs.length - 1) * 8) / subs.length;
+    subs.forEach(([l, a, on], i) => add(20 + i*(w + 8), 110, w, 66, l, a, on, 30));
+    gy = 188;
+  }
+  const list = items();
+  if (list[0].kind !== 'word') {
+    const ch = Math.floor((664 - gy) / 4) - 6;
+    list.forEach((c, i) => add(20 + (i%6)*164, gy + Math.floor(i/6)*(ch + 6), 156, ch, isDict() ? String(i+1) : c.text, 'item:'+i,
+      i === S.idx, isDict() ? 44 : Math.min(68, ch - 50), { cell:true, stars: best[bestKey(c)] || 0 }));
+  } else {
+    list.forEach((c, i) => add(20 + (i%2)*496, gy + Math.floor(i/2)*96, 488, 88, isDict() ? `${t.q} ${i+1}` : c.text, 'item:'+i,
+      i === S.idx, 46, { word:true, stars: best[bestKey(c)] || 0 }));
+  }
+  if (isDict()) add(20, 676, 984, 92, t.listen, 'listen', false, 42);
+  else ['watch','trace','test','free'].forEach((m, i) => add(20 + i*248, 676, 236, 92, t[m], 'mode:'+m, S.mode === m, 36));
+  ['clear','listen','prev','next'].forEach((a, i) => add(20 + i*248, 784, 236, 92, t[a], a, false, 36));
+  [[S.layout === 'desk' ? t.easel : t.desk, 'layout'], [t.up, 'up'], [t.down, 'down'], ['🌐 ' + LANG_NAME[S.lang], 'lang']]
+    .forEach(([l, a], i) => add(20 + i*248, 892, 236, 92, l, a, false, 34));
   btns.forEach((b, i) => {
     const hov = hoverSet.has(i);
     g.fillStyle = b.active ? '#c9452f' : (hov ? '#fff3d6' : '#efe1c2'); rr(g, b.x, b.y, b.w, b.h, 14); g.fill();
     if (hov) { g.strokeStyle = '#ffd28a'; g.lineWidth = 6; g.stroke(); }
-    g.fillStyle = b.active ? '#fff' : '#2a1c10'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    const fg = b.active ? '#fff' : '#2a1c10', sc = b.active ? '#ffe2a8' : '#c08a1e';
+    g.fillStyle = fg; g.textAlign = 'center'; g.textBaseline = 'middle';
     if (b.cell) {
       g.font = `400 ${b.size}px ${FONT}`; g.fillText(b.label, b.x + b.w/2, b.y + b.h/2 - 12);
-      g.font = `400 22px ${FONT}`; g.fillStyle = b.active ? '#ffe2a8' : '#c08a1e';
-      g.fillText('★'.repeat(b.stars) + '☆'.repeat(3 - b.stars), b.x + b.w/2, b.y + b.h - 18);
+      g.font = `400 22px ${FONT}`; g.fillStyle = sc; g.fillText(starStr(b.stars), b.x + b.w/2, b.y + b.h - 18);
+    } else if (b.word) {
+      fit(g, b.label, b.x + b.w/2 - 60, b.y + b.h/2 + 2, b.w - 170, b.size);
+      g.font = `400 26px ${FONT}`; g.fillStyle = sc; g.fillText(starStr(b.stars), b.x + b.w - 70, b.y + b.h/2 + 2);
     } else fit(g, b.label, b.x + b.w/2, b.y + b.h/2 + 2, b.w - 20, b.size);
   });
 }
 function drawInfo() {
-  const g = ic, t = T[S.lang], c = cur();
+  const g = ic, t = T[S.lang], it = curItem(), chars = curChars(), dict = isDict(), hidden = dict && !S.done;
   g.fillStyle = '#6b4a2e'; g.fillRect(0, 0, 1024, 512);
   g.fillStyle = '#f6eedb'; rr(g, 14, 14, 996, 484, 22); g.fill();
   g.fillStyle = '#fffaf0'; rr(g, 40, 40, 432, 432, 16); g.fill();
   g.strokeStyle = 'rgba(170,50,40,.4)'; g.lineWidth = 3; g.stroke();
-  g.fillStyle = '#1b1410'; g.font = `400 330px ${FONT}`; g.textAlign = 'center'; g.textBaseline = 'middle';
-  g.fillText(c.ch, 256, 268);
+  g.fillStyle = hidden ? '#c9b89a' : '#1b1410'; g.font = `400 330px ${FONT}`; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillText(hidden ? '?' : curChar(), 256, 268);
   g.textAlign = 'left'; g.textBaseline = 'alphabetic';
-  g.fillStyle = '#2a1c10'; fit(g, c.name, 500, 120, 490, 70);
-  g.fillStyle = '#6d5a48'; fit(g, `${c.rom} · ${S.lang === 'ko' ? c.ko : c.en}`, 500, 172, 490, 34, 400);
-  let prog = t[S.mode];
-  if (S.mode === 'trace' || S.mode === 'test') prog += ` · ${t.stroke} ${Math.min(S.progress + 1, c.strokes.length)} / ${c.strokes.length}`;
-  else if (S.mode === 'watch') prog += ` · ${c.strokes.length} ${t.strokes}`;
-  g.fillStyle = '#8a3a28'; fit(g, prog, 500, 248, 490, 36);
-  g.fillStyle = S.msgColor; fit(g, t[S.msgKey], 500, 330, 490, 46);
-  if (S.mode === 'trace' || S.mode === 'test') {
-    if (S.done) { g.fillStyle = '#d49a1e'; g.font = `400 60px ${FONT}`; g.fillText('★'.repeat(S.stars) + '☆'.repeat(3 - S.stars), 500, 418); }
-    const b = best[c.ch] || 0;
-    g.fillStyle = '#6d5a48'; g.font = `400 30px ${FONT}`; g.fillText(`${t.best} ${'★'.repeat(b)}${'☆'.repeat(3 - b)}`, 500, 470);
+  // 이름 또는 낱말(현재 글자 강조)
+  if (it.kind !== 'word') { g.fillStyle = '#2a1c10'; fit(g, it.name, 500, 118, 490, 68); }
+  else {
+    const disp = chars.map((c, i) => hidden && i >= S.ci ? '○' : c);
+    let size = 68; g.font = `700 ${size}px ${FONT}`;
+    const total = disp.reduce((s, c) => s + g.measureText(c).width + 6, 0);
+    if (total > 490) { size = Math.floor(size * 490 / total); g.font = `700 ${size}px ${FONT}`; }
+    let cx = 500;
+    disp.forEach((c, i) => {
+      g.fillStyle = S.done || i < S.ci ? '#2a1c10' : i === S.ci ? '#c9452f' : '#b9a98f';
+      g.fillText(c, cx, 118); cx += g.measureText(c).width + 6;
+    });
+  }
+  const mean = it.mean[S.lang];
+  const sub = hidden ? (it.kind === 'word' ? mean : `${mean}`) : [it.rom, mean].filter(Boolean).join(' · ');
+  g.fillStyle = '#6d5a48'; fit(g, sub, 500, 172, 490, 34, 400);
+  const m = mode();
+  let prog = dict ? `${t.dict} · ${S.grade === 'h' ? t.hanja : t.grade(S.grade)}` : t[m];
+  if (m === 'trace' || m === 'test') prog += ` · ${t.stroke} ${Math.min(S.progress + 1, curStrokes().length)} / ${curStrokes().length}`;
+  else if (m === 'watch') prog += ` · ${curStrokes().length} ${t.strokes}`;
+  g.fillStyle = '#8a3a28'; fit(g, prog, 500, 248, 490, 34);
+  g.fillStyle = S.msgColor; fit(g, t[S.msgKey], 500, 330, 490, 44);
+  if (m === 'trace' || m === 'test') {
+    if (S.done) { g.fillStyle = '#d49a1e'; g.font = `400 60px ${FONT}`; g.fillText(starStr(S.stars), 500, 418); }
+    g.fillStyle = '#6d5a48'; g.font = `400 30px ${FONT}`; g.fillText(`${t.best} ${starStr(best[bestKey(it)] || 0)}`, 500, 470);
   }
 }
 
 /* =========================================================
-   5. 3D 장면
+   6. 3D 장면 — 궁궐 마당의 과거시험장
    ========================================================= */
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -339,10 +485,10 @@ document.body.appendChild(renderer.domElement);
 document.body.appendChild(VRButton.createButton(renderer));
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x2a2018);
-const camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.01, 50);
-scene.add(new THREE.HemisphereLight(0xfff4e0, 0x5a4630, 1.4));
-const sun = new THREE.DirectionalLight(0xffffff, 1.2); sun.position.set(1, 3, 2); scene.add(sun);
+scene.background = new THREE.Color(0x9cc8ee);
+const camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.01, 120);
+scene.add(new THREE.HemisphereLight(0xffffff, 0xb8a888, 1.7));
+const sun = new THREE.DirectionalLight(0xfff6e6, 1.6); sun.position.set(6, 12, 5); scene.add(sun);
 
 const canvasTex = (cv, repeat) => {
   const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace;
@@ -352,41 +498,88 @@ const canvasTex = (cv, repeat) => {
 };
 const std = (color, extra = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.85, ...extra });
 
-// 방(한옥 느낌): 마루 바닥, 벽, 대들보, 창호
-(function room() {
-  const fc = mkCanvas(512, 512), g = fc.getContext('2d');
-  for (let i = 0; i < 8; i++) {
-    g.fillStyle = `hsl(28,38%,${36 + Math.random()*10}%)`; g.fillRect(0, i*64, 512, 64);
-    g.fillStyle = 'rgba(0,0,0,.28)'; g.fillRect(0, i*64, 512, 2);
-    for (let k = 0; k < 24; k++) {
-      g.strokeStyle = 'rgba(60,35,15,.12)'; const y = i*64 + Math.random()*64;
-      g.beginPath(); g.moveTo(0, y); g.bezierCurveTo(170, y + Math.random()*8 - 4, 340, y + Math.random()*8 - 4, 512, y); g.stroke();
-    }
+(function courtyard() {
+  // 박석(돌 바닥)
+  const sc = mkCanvas(512, 512), g = sc.getContext('2d');
+  g.fillStyle = '#8d8778'; g.fillRect(0, 0, 512, 512);
+  for (let r = 0; r < 4; r++) for (let c = 0; c < 4; c++) {
+    const j = () => Math.random() * 10 - 5;
+    g.fillStyle = `hsl(${36 + Math.random()*10},${8 + Math.random()*6}%,${66 + Math.random()*10}%)`;
+    g.beginPath(); g.moveTo(c*128 + 5 + j(), r*128 + 5 + j()); g.lineTo(c*128 + 123 + j(), r*128 + 5 + j());
+    g.lineTo(c*128 + 123 + j(), r*128 + 123 + j()); g.lineTo(c*128 + 5 + j(), r*128 + 123 + j()); g.fill();
   }
-  const floor = new THREE.Mesh(new THREE.PlaneGeometry(6, 6), std(0xffffff, { map: canvasTex(fc, 3) }));
-  floor.rotation.x = -Math.PI / 2; scene.add(floor);
-  const wallM = std(0xeadfca), beamM = std(0x4a3020);
-  [[0, -3, 0], [0, 3, Math.PI], [-3, 0, Math.PI/2], [3, 0, -Math.PI/2]].forEach(([x, z, r]) => {
-    const w = new THREE.Mesh(new THREE.PlaneGeometry(6, 3), wallM); w.position.set(x, 1.5, z); w.rotation.y = r; scene.add(w);
-    const beam = new THREE.Mesh(new THREE.BoxGeometry(6, 0.16, 0.12), beamM); beam.position.set(x*0.98, 2.3, z*0.98); beam.rotation.y = r; scene.add(beam);
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(90, 90), std(0xffffff, { map: canvasTex(sc, 22) }));
+  ground.rotation.x = -Math.PI / 2; scene.add(ground);
+
+  // 전각: 기단 + 붉은 벽과 기둥 + 단청 띠 + 기와지붕
+  const stoneM = std(0xb9b2a4), wallM = std(0x7d2e25), pillarM = std(0x9a3327), bandM = std(0x2f6b5e), roofM = std(0x474b50, { flatShading: true }), ridgeM = std(0xd8d4cc);
+  function hall(w, d, h, rh, x, z, ry, plat) {
+    const grp = new THREE.Group();
+    const p = new THREE.Mesh(new THREE.BoxGeometry(w + 3, plat, d + 3), stoneM); p.position.y = plat / 2; grp.add(p);
+    const wall = new THREE.Mesh(new THREE.BoxGeometry(w, h, d * 0.7), wallM); wall.position.set(0, plat + h/2, -d * 0.15); grp.add(wall);
+    const n = Math.round(w / 2.6);
+    for (let i = 0; i <= n; i++) {
+      const c = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, h, 10), pillarM);
+      c.position.set(-w/2 + i * w / n, plat + h/2, d/2 - 0.2); grp.add(c);
+    }
+    const band = new THREE.Mesh(new THREE.BoxGeometry(w + 0.8, 0.45, d + 0.8), bandM); band.position.y = plat + h + 0.22; grp.add(band);
+    const rg = new THREE.CylinderGeometry(1, 1, w + 3, 3, 1, false, Math.PI / 2);
+    rg.rotateZ(Math.PI / 2); rg.scale(1, rh / 1.5, (d + 3.4) / 1.732);
+    const roof = new THREE.Mesh(rg, roofM); roof.position.y = plat + h + 0.45 + rh / 3; grp.add(roof);
+    const ridge = new THREE.Mesh(new THREE.BoxGeometry(w + 3.2, 0.28, 0.4), ridgeM); ridge.position.y = plat + h + 0.45 + rh; grp.add(ridge);
+    grp.position.set(x, 0, z); grp.rotation.y = ry; scene.add(grp);
+  }
+  hall(18, 7, 4.4, 3.2, 0, -21, 0, 1.0);                 // 정전
+  hall(38, 3, 2.8, 1.7, -16, -2, Math.PI / 2, 0.3);      // 좌우 행각
+  hall(38, 3, 2.8, 1.7, 16, -2, -Math.PI / 2, 0.3);
+  hall(38, 3, 2.8, 1.7, 0, 17, Math.PI, 0.3);
+
+  // 오방색 깃발
+  const flagCols = [0xc8372d, 0xe8c63a, 0x2c5fa8, 0xf2efe6, 0x26262a];
+  for (let i = 0; i < 10; i++) {
+    const x = -9 + i * 2, pole = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 3.6, 6), std(0x6b4a2e));
+    pole.position.set(x, 1.8, -14); scene.add(pole);
+    const flag = new THREE.Mesh(new THREE.PlaneGeometry(0.65, 1.3), std(flagCols[i % 5], { side: THREE.DoubleSide }));
+    flag.position.set(x + 0.36, 2.9, -14); scene.add(flag);
+  }
+  // 붉은 관복의 시험관
+  for (let i = 0; i < 6; i++) {
+    const x = -5 + i * 2, o = new THREE.Group();
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.3, 1.45, 10), std(0xa8322a)); body.position.y = 0.72; o.add(body);
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.11, 12, 10), std(0xe8c9a8)); head.position.y = 1.56; o.add(head);
+    const hat = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.14, 0.2), std(0x15151a)); hat.position.y = 1.7; o.add(hat);
+    o.position.set(x, 0, -15.5); scene.add(o);
+  }
+  // 나무
+  [[-21,-12],[-22,4],[21,-10],[22,6],[-9,-27],[10,-27],[-8,22],[9,22]].forEach(([x, z]) => {
+    const tr = new THREE.Mesh(new THREE.SphereGeometry(3.2, 10, 8), std(0x4c7a3a, { flatShading: true })); tr.position.set(x, 4.2, z); scene.add(tr);
   });
-  [[-2.94,-2.94],[2.94,-2.94],[-2.94,2.94],[2.94,2.94],[0,-2.94],[-2.94,0],[2.94,0]].forEach(([x, z]) => {
-    const p = new THREE.Mesh(new THREE.BoxGeometry(0.14, 3, 0.14), beamM); p.position.set(x, 1.5, z); scene.add(p);
+
+  // 돗자리에 앉아 시험 보는 유생들 (인스턴스)
+  const spots = [];
+  for (let z = -10.4; z <= 10; z += 2.6) for (let x = -9; x <= 9.01; x += 2.25)
+    if (!(Math.abs(x) < 1.6 && z > -5.5 && z < 1.8)) spots.push([x + Math.random()*0.2 - 0.1, z + Math.random()*0.2 - 0.1, Math.random()*0.3 - 0.15]);
+  const N = spots.length, D = new THREE.Object3D();
+  const inst = (geo, mat) => { const m = new THREE.InstancedMesh(geo, mat, N); scene.add(m); return m; };
+  const mats = inst(new THREE.PlaneGeometry(1.5, 2.0), std(0xd9c48f));
+  const bodies = inst(new THREE.CylinderGeometry(0.15, 0.36, 0.6, 10), std(0xbfe6e0));
+  const heads = inst(new THREE.SphereGeometry(0.11, 12, 10), std(0xe8c9a8));
+  const hats = inst(new THREE.BoxGeometry(0.2, 0.13, 0.2), std(0x15151a));
+  const sheets = inst(new THREE.PlaneGeometry(0.55, 0.75), std(0xfbf7ec));
+  spots.forEach(([x, z, yaw], i) => {
+    const fx = -Math.sin(yaw), fz = -Math.cos(yaw);           // 앞쪽(정전 방향)
+    const put = (mesh, px, py, pz, rx) => { D.position.set(px, py, pz); D.rotation.set(rx, yaw, 0, 'YXZ'); D.updateMatrix(); mesh.setMatrixAt(i, D.matrix); };
+    put(mats, x, 0.012, z - 0.25, -Math.PI / 2);
+    put(bodies, x, 0.3, z + 0.3, -0.22);
+    put(heads, x + fx*0.14, 0.68, z + 0.3 + fz*0.14, 0);
+    put(hats, x + fx*0.14, 0.81, z + 0.3 + fz*0.14, 0);
+    put(sheets, x + fx*0.62, 0.02, z + 0.3 + fz*0.62, -Math.PI / 2);
   });
-  const lc = mkCanvas(512, 320), lg = lc.getContext('2d');      // 창호지 격자
-  lg.fillStyle = '#fbf5e6'; lg.fillRect(0, 0, 512, 320); lg.fillStyle = '#5a3a24';
-  for (let x = 0; x <= 512; x += 64) lg.fillRect(x - 4, 0, 8, 320);
-  for (let y = 0; y <= 320; y += 64) lg.fillRect(0, y - 4, 512, 8);
-  lg.strokeStyle = '#5a3a24'; lg.lineWidth = 24; lg.strokeRect(0, 0, 512, 320);
-  const winM = new THREE.MeshBasicMaterial({ map: canvasTex(lc) });
-  [[-1.5, -2.99, 0], [1.5, -2.99, 0], [-2.99, -1, Math.PI/2], [2.99, -1, -Math.PI/2]].forEach(([x, z, r]) => {
-    const w = new THREE.Mesh(new THREE.PlaneGeometry(1.3, 0.8), winM);
-    w.position.set(r ? x : x, 1.45, r ? z : z); w.rotation.y = r; scene.add(w);
-  });
-  const cushion = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.06, 28), std(0x8c2f2f)); cushion.position.set(0, 0.03, 0.15); scene.add(cushion);
+  // 내 돗자리
+  const myMat = new THREE.Mesh(new THREE.PlaneGeometry(1.7, 2.3), std(0xd9c48f)); myMat.rotation.x = -Math.PI / 2; myMat.position.set(0, 0.012, -0.25); scene.add(myMat);
 })();
 
-// 책상
+// 서안(책상)
 const desk = new THREE.Group(); scene.add(desk);
 const deskTop = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.04, 0.64), std(0x5b3a24, { roughness: 0.6 }));
 deskTop.position.set(0, -0.02, -0.40); desk.add(deskTop);
@@ -412,6 +605,7 @@ ring.position.z = 0.0015; ring.visible = false; paper.add(ring);
 const ctrlTex = canvasTex(ctrlCv), infoTex = canvasTex(infoCv);
 const ctrlMesh = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.5), new THREE.MeshBasicMaterial({ map: ctrlTex })); scene.add(ctrlMesh);
 const infoMesh = new THREE.Mesh(new THREE.PlaneGeometry(1.0, 0.5), new THREE.MeshBasicMaterial({ map: infoTex })); scene.add(infoMesh);
+const post = new THREE.Mesh(new THREE.BoxGeometry(0.06, 1, 0.06), std(0x4a2e1c)); scene.add(post);
 
 function layoutScene() {
   const h = S.deskH;
@@ -421,13 +615,14 @@ function layoutScene() {
   else { paper.position.set(0, h + 0.34, -0.56); paper.rotation.set(-0.3, 0, 0); board.visible = true; }
   ctrlMesh.position.set(-0.68, h + 0.34, -0.38); ctrlMesh.rotation.set(-0.12, 0.62, 0, 'YXZ');
   infoMesh.position.set(0, h + 0.92, -0.95);
-  camera.position.set(-0.2, h + 0.78, 0.82);
-  camera.lookAt(-0.2, h + 0.36, -0.55);
+  post.scale.y = h + 0.7; post.position.set(0, (h + 0.7) / 2, -0.99);
+  camera.position.set(-0.2, h + 0.86, 0.95);
+  camera.lookAt(-0.2, h + 0.46, -0.55);
   scene.updateMatrixWorld(true);
 }
 
 /* =========================================================
-   6. 소리 / 음성 / 진동
+   7. 소리 / 발음 / 진동
    ========================================================= */
 let AC = null;
 function initAudio() {
@@ -447,12 +642,22 @@ const sfx = {
   fail:  () => tone(220, 0, 0.25, 0.1, 'triangle'),
   done:  () => [523, 659, 784, 1047].forEach((f, i) => tone(f, i * 0.11, 0.3, 0.09)),
 };
-function speak() {
+function tts(text) {                          // 음성 파일이 없을 때의 예비 수단
   try {
-    const u = new SpeechSynthesisUtterance(cur().speak); u.lang = 'ko-KR'; u.rate = 0.85;
+    const u = new SpeechSynthesisUtterance(text); u.lang = 'ko-KR'; u.rate = 0.85;
     const v = speechSynthesis.getVoices().find(v => (v.lang || '').toLowerCase().startsWith('ko')); if (v) u.voice = v;
     speechSynthesis.cancel(); speechSynthesis.speak(u);
   } catch (e) {}
+}
+const sndCache = {};
+function speak(delay = 0) {                   // 녹음된 발음 파일 재생
+  const it = curItem(), id = sndId(it.text);
+  let a = sndCache[id];
+  if (!a) { a = sndCache[id] = new Audio(`snd_${id}.wav`); a.addEventListener('error', () => { a.failed = true; tts(it.speak); }); }
+  setTimeout(() => {
+    if (a.failed) return tts(it.speak);
+    try { a.currentTime = 0; a.play().catch(() => {}); } catch (e) {}
+  }, delay);
 }
 const ctrls = [], hands = [], xrHover = [-1, -1];
 function haptic(i, v, ms) {
@@ -465,16 +670,21 @@ function haptic(i, v, ms) {
 }
 
 /* =========================================================
-   7. 쓰기 / 채점
+   8. 쓰기 / 채점
    ========================================================= */
 const wOf = p => 1.8 + p * 7.5;              // 누르는 깊이 → 붓 굵기(0~100 단위)
 function setMsg(key, color = '#3b2a1c') { S.msgKey = key; S.msgColor = color; infoDirty = true; }
-function resetChar() {
-  Object.assign(S, { progress: 0, mistakes: 0, streakFail: 0, done: false, stars: 0 });
+const startMsg = () => setMsg(isDict() ? 'dictMsg' : mode() === 'watch' ? 'watchMsg' : mode() === 'free' ? 'freeMsg' : 'start');
+function resetChar() {                        // 글자 한 자 새로 시작
+  Object.assign(S, { progress: 0, streakFail: 0, nextAt: 0 });
   userStrokes = []; drawing = null; flash = null; watchStart = performance.now();
-  setMsg(S.mode === 'watch' ? 'watchMsg' : S.mode === 'free' ? 'freeMsg' : 'start');
   buildBase(); redrawInk(); paperDirty = ctrlDirty = infoDirty = true;
 }
+function resetItem() {                        // 낱말(또는 글자) 처음부터
+  Object.assign(S, { ci: 0, mistakes: 0, done: false, stars: 0 });
+  resetChar(); startMsg();
+}
+const canDraw = () => mode() !== 'watch' && !S.nextAt;
 function beginStroke(owner, pt, p) {
   drawing = { owner, pts: [pt], ws: [wOf(p)], p };
   kc.fillStyle = '#16110d'; stamp(kc, pt, pt, drawing.ws[0], drawing.ws[0]); paperDirty = true;
@@ -489,26 +699,30 @@ function addPoint(pt, p) {
 function endStroke() { const st = drawing; drawing = null; if (st) evaluate(st); }
 
 function evaluate(st) {
-  if (S.mode === 'free') { userStrokes.push(st); return; }
-  const ch = cur(), k = S.progress;
-  if (S.done || k >= ch.strokes.length) { redrawInk(); paperDirty = true; return; }
-  const R = resample(st.pts, 24), E = resample(ch.strokes[k], 24);
-  const thr = S.mode === 'trace' ? 13 : 16;
-  const d = avgDist(R, E);
-  if (d < thr) {
+  const m = mode();
+  if (m === 'free') { userStrokes.push(st); return; }
+  const strokes = curStrokes(), k = S.progress;
+  if (S.done || S.nextAt || k >= strokes.length) { redrawInk(); paperDirty = true; return; }
+  const R = resample(st.pts, 24), E = resample(strokes[k], 24);
+  const thr = m === 'trace' ? 13 : 16;
+  if (avgDist(R, E) < thr) {
     userStrokes.push(st); S.progress++; S.streakFail = 0;
     haptic(st.owner, 0.5, 40);
-    if (S.progress >= ch.strokes.length) {
-      S.done = true; S.stars = S.mistakes === 0 ? 3 : S.mistakes <= 2 ? 2 : 1;
-      best[ch.ch] = Math.max(best[ch.ch] || 0, S.stars); save();
-      setMsg('done', '#2e7d4a'); sfx.done(); speak(); haptic(st.owner, 0.9, 150); ctrlDirty = true;
-    } else { setMsg('good', '#2e7d4a'); sfx.ok(); }
+    if (S.progress < strokes.length) { setMsg('good', '#2e7d4a'); sfx.ok(); }
+    else if (S.ci < curChars().length - 1) {  // 낱말의 다음 글자로
+      setMsg('nextSyl', '#2e7d4a'); sfx.ok(); S.nextAt = performance.now() + 900;
+    } else {
+      const it = curItem(), n = curChars().length;
+      S.done = true; S.stars = S.mistakes === 0 ? 3 : S.mistakes <= 2 * n ? 2 : 1;
+      best[bestKey(it)] = Math.max(best[bestKey(it)] || 0, S.stars); save();
+      setMsg('done', '#2e7d4a'); sfx.done(); speak(500); haptic(st.owner, 0.9, 150); ctrlDirty = true;
+    }
   } else {
     S.mistakes++; S.streakFail++;
     let why = 'shape';
     if (avgDist(R, E.slice().reverse()) < thr) why = 'dir';
-    else if (ch.strokes.some((s, j) => j > k && avgDist(R, resample(s, 24)) < thr)) why = 'order';
-    setMsg(S.mode === 'test' && S.streakFail === 2 ? 'hint' : why, '#b23a26');
+    else if (strokes.some((s, j) => j > k && avgDist(R, resample(s, 24)) < thr)) why = 'order';
+    setMsg(m === 'test' && S.streakFail === 2 ? 'hint' : why, '#b23a26');
     flash = { st, until: performance.now() + 700 };
     redrawInk(); sfx.fail(); haptic(st.owner, 0.25, 120);
   }
@@ -516,7 +730,7 @@ function evaluate(st) {
 }
 
 /* =========================================================
-   8. 버튼 동작
+   9. 버튼 동작
    ========================================================= */
 function btnIndexAt(uv) {
   const x = uv.x * 1024, y = (1 - uv.y) * 1024;
@@ -524,23 +738,26 @@ function btnIndexAt(uv) {
 }
 function act(a) {
   initAudio(); sfx.click();
-  const n = CHARS[S.cat].length;
-  if (a.startsWith('cat:')) { S.cat = a.slice(4); S.idx = 0; resetChar(); }
-  else if (a.startsWith('char:')) { S.idx = +a.slice(5); resetChar(); }
-  else if (a.startsWith('mode:')) { S.mode = a.slice(5); resetChar(); }
-  else if (a === 'clear') resetChar();
-  else if (a === 'listen') speak();
-  else if (a === 'prev') { S.idx = (S.idx - 1 + n) % n; resetChar(); }
-  else if (a === 'next') { S.idx = (S.idx + 1) % n; resetChar(); }
+  const n = items().length;
+  let say = false;
+  if (a.startsWith('tab:')) { S.tab = a.slice(4); if (S.tab === 'word' && S.grade === 'h') S.grade = 1; S.idx = 0; resetItem(); say = true; }
+  else if (a.startsWith('grade:')) { const v = a.slice(6); S.grade = v === 'h' ? 'h' : +v; S.idx = 0; resetItem(); say = true; }
+  else if (a.startsWith('item:')) { S.idx = +a.slice(5); resetItem(); say = true; }
+  else if (a.startsWith('mode:')) { S.mode = a.slice(5); resetItem(); }
+  else if (a === 'clear') resetItem();
+  else if (a === 'listen') say = true;
+  else if (a === 'prev') { S.idx = (S.idx - 1 + n) % n; resetItem(); say = true; }
+  else if (a === 'next') { S.idx = (S.idx + 1) % n; resetItem(); say = true; }
   else if (a === 'layout') { S.layout = S.layout === 'desk' ? 'easel' : 'desk'; layoutScene(); }
   else if (a === 'up') { S.deskH = Math.min(1.25, +(S.deskH + 0.04).toFixed(2)); layoutScene(); }
   else if (a === 'down') { S.deskH = Math.max(0.45, +(S.deskH - 0.04).toFixed(2)); layoutScene(); }
-  else if (a === 'lang') S.lang = S.lang === 'ko' ? 'en' : 'ko';
+  else if (a === 'lang') S.lang = LANGS[(LANGS.indexOf(S.lang) + 1) % LANGS.length];
+  if (say) speak(120);
   save(); ctrlDirty = infoDirty = paperDirty = true;
 }
 
 /* =========================================================
-   9. 입력 — PC 마우스/터치
+   10. 입력 — PC 마우스/터치
    ========================================================= */
 const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
 const dom = renderer.domElement;
@@ -557,7 +774,7 @@ dom.addEventListener('pointerdown', e => {
   initAudio();
   const h = pick(e, [ctrlMesh, paper]); if (!h) return;
   if (h.object === ctrlMesh) { const i = btnIndexAt(h.uv); if (i >= 0) act(btns[i].action); }
-  else if (S.mode !== 'watch' && !drawing) { beginStroke('mouse', uvUnits(h.uv), 0.5); dom.setPointerCapture(e.pointerId); }
+  else if (canDraw() && !drawing) { beginStroke('mouse', uvUnits(h.uv), 0.5); dom.setPointerCapture(e.pointerId); }
 });
 dom.addEventListener('pointermove', e => {
   if (renderer.xr.isPresenting) return;
@@ -570,7 +787,7 @@ dom.addEventListener('pointerup', mouseUp);
 dom.addEventListener('pointercancel', mouseUp);
 
 /* =========================================================
-   10. 입력 — Quest 컨트롤러 / 핸드트래킹
+   11. 입력 — Quest 컨트롤러 / 핸드트래킹
    ========================================================= */
 const handFactory = new XRHandModelFactory();
 function makeBrush() {
@@ -622,7 +839,7 @@ function updateXR() {
     if (drawing && drawing.owner === i) {
       if (!inside || L.z > 0.018 || L.z < -0.2) endStroke();
       else addPoint(toUnits(L), pressure(L.z));
-    } else if (!drawing && S.mode !== 'watch' && inside && L.z < 0.008 && L.z > -0.05) {
+    } else if (!drawing && canDraw() && inside && L.z < 0.008 && L.z > -0.05) {
       beginStroke(i, toUnits(L), pressure(L.z)); haptic(i, 0.35, 25);
     }
     const nearPaper = inside && L.z < 0.15 && L.z > -0.2;
@@ -639,7 +856,7 @@ function updateXR() {
       xrHover[i] = -1; line.visible = !nearPaper; line.scale.z = h ? h.distance : 0.5; line.material.opacity = 0.35;
     }
   }
-  if (near && S.mode !== 'watch') {           // 붓끝 그림자 링: 높이 감 잡기용
+  if (near && mode() !== 'watch') {           // 붓끝 그림자 링: 높이 감 잡기용
     ring.visible = true; ring.position.set(near.x, near.y, 0.0015);
     const s = 1 + Math.max(0, near.z) * 30; ring.scale.set(s, s, 1);
     ring.material.color.set(near.touching ? 0x2e9b57 : 0x2a1c10);
@@ -647,7 +864,7 @@ function updateXR() {
 }
 
 /* =========================================================
-   11. 루프
+   12. 루프
    ========================================================= */
 function updateHover() {
   const s = new Set();
@@ -661,7 +878,8 @@ renderer.setAnimationLoop(() => {
   if (renderer.xr.isPresenting) updateXR(); else ring.visible = false;
   updateHover();
   if (flash && now >= flash.until) { flash = null; paperDirty = true; }
-  if (S.mode === 'watch') paperDirty = true;
+  if (S.nextAt && now >= S.nextAt) { S.ci++; resetChar(); startMsg(); }
+  if (mode() === 'watch') { watchTick(now); paperDirty = true; }
   if (paperDirty) { compose(now); paperDirty = false; }
   if (ctrlDirty) { drawCtrl(); ctrlTex.needsUpdate = true; ctrlDirty = false; }
   if (infoDirty) { drawInfo(); infoTex.needsUpdate = true; infoDirty = false; }
@@ -676,14 +894,26 @@ dispatchEvent(new Event('resize'));
 renderer.xr.addEventListener('sessionstart', () => { initAudio(); document.getElementById('help').style.display = 'none'; });
 renderer.xr.addEventListener('sessionend', () => { document.getElementById('help').style.display = ''; layoutScene(); });
 
-// 한글 웹폰트는 글자 범위별로 나뉘어 있어 쓰는 글자를 미리 불러옴
-const ALL = Object.values(CHARS).flat().map(c => c.ch + c.name + c.ko).join('') +
-            Object.values(T.ko).join('') + Object.values(T.en).join('') + '★☆·◀▶0123456789/';
-Promise.all([document.fonts.load(`400 40px "Noto Serif KR"`, ALL), document.fonts.load(`700 40px "Noto Serif KR"`, ALL)])
+// 웹폰트는 글자 범위별로 나뉘어 있어 쓰는 글자를 미리 불러옴
+const ALL = [...JAMO_ITEMS, ...HANJA_ITEMS, ...Object.values(WORDS).flat()].map(c => c.text + c.name + Object.values(c.mean).join('') + c.rom).join('') +
+            Object.values(T).map(t => Object.values(t).map(v => typeof v === 'function' ? v(1) : v).join('')).join('') +
+            Object.values(LANG_NAME).join('') + '★☆·◀▶○?0123456789/';
+Promise.all(['Noto Serif', 'Noto Serif KR'].flatMap(f => [400, 700].map(w => document.fonts.load(`${w} 40px "${f}"`, ALL))))
   .then(() => { ctrlDirty = infoDirty = paperDirty = true; }).catch(() => {});
 
+// 시험용: 콘솔에서 butgilDebug.writeNext() 를 부르면 다음 획을 정답대로 써 줌
+window.butgilDebug = {
+  state: S,
+  writeNext() {
+    const s = curStrokes()[S.progress];
+    if (!s || !canDraw() || S.done) return false;
+    evaluate({ owner: 'debug', pts: s.map(p => p.slice()), ws: s.map(() => 5) });
+    redrawInk(); paperDirty = true; return true;
+  },
+};
+
 layoutScene();
-resetChar();
+resetItem();
 </script>
 </body>
 </html>
