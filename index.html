@@ -31,6 +31,7 @@
 import * as THREE from 'three';
 import { VRButton } from 'three/addons/webxr/VRButton.js';
 import { XRHandModelFactory } from 'three/addons/webxr/XRHandModelFactory.js';
+import { buildEnvironment } from './env.js';
 
 /* =========================================================
    1. 글자 데이터 — 0~100 좌표계(y는 아래로), 획마다 중심선
@@ -487,7 +488,7 @@ document.body.appendChild(VRButton.createButton(renderer));
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x9cc8ee);
 const camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.01, 120);
-scene.add(new THREE.HemisphereLight(0xffffff, 0xb8a888, 1.7));
+scene.add(new THREE.HemisphereLight(0xffffff, 0xb8a888, 1.5));
 const sun = new THREE.DirectionalLight(0xfff6e6, 1.6); sun.position.set(6, 12, 5); scene.add(sun);
 
 const canvasTex = (cv, repeat) => {
@@ -498,86 +499,7 @@ const canvasTex = (cv, repeat) => {
 };
 const std = (color, extra = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.85, ...extra });
 
-(function courtyard() {
-  // 박석(돌 바닥)
-  const sc = mkCanvas(512, 512), g = sc.getContext('2d');
-  g.fillStyle = '#8d8778'; g.fillRect(0, 0, 512, 512);
-  for (let r = 0; r < 4; r++) for (let c = 0; c < 4; c++) {
-    const j = () => Math.random() * 10 - 5;
-    g.fillStyle = `hsl(${36 + Math.random()*10},${8 + Math.random()*6}%,${66 + Math.random()*10}%)`;
-    g.beginPath(); g.moveTo(c*128 + 5 + j(), r*128 + 5 + j()); g.lineTo(c*128 + 123 + j(), r*128 + 5 + j());
-    g.lineTo(c*128 + 123 + j(), r*128 + 123 + j()); g.lineTo(c*128 + 5 + j(), r*128 + 123 + j()); g.fill();
-  }
-  const ground = new THREE.Mesh(new THREE.PlaneGeometry(90, 90), std(0xffffff, { map: canvasTex(sc, 22) }));
-  ground.rotation.x = -Math.PI / 2; scene.add(ground);
-
-  // 전각: 기단 + 붉은 벽과 기둥 + 단청 띠 + 기와지붕
-  const stoneM = std(0xb9b2a4), wallM = std(0x7d2e25), pillarM = std(0x9a3327), bandM = std(0x2f6b5e), roofM = std(0x474b50, { flatShading: true }), ridgeM = std(0xd8d4cc);
-  function hall(w, d, h, rh, x, z, ry, plat) {
-    const grp = new THREE.Group();
-    const p = new THREE.Mesh(new THREE.BoxGeometry(w + 3, plat, d + 3), stoneM); p.position.y = plat / 2; grp.add(p);
-    const wall = new THREE.Mesh(new THREE.BoxGeometry(w, h, d * 0.7), wallM); wall.position.set(0, plat + h/2, -d * 0.15); grp.add(wall);
-    const n = Math.round(w / 2.6);
-    for (let i = 0; i <= n; i++) {
-      const c = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, h, 10), pillarM);
-      c.position.set(-w/2 + i * w / n, plat + h/2, d/2 - 0.2); grp.add(c);
-    }
-    const band = new THREE.Mesh(new THREE.BoxGeometry(w + 0.8, 0.45, d + 0.8), bandM); band.position.y = plat + h + 0.22; grp.add(band);
-    const rg = new THREE.CylinderGeometry(1, 1, w + 3, 3, 1, false, Math.PI / 2);
-    rg.rotateZ(Math.PI / 2); rg.scale(1, rh / 1.5, (d + 3.4) / 1.732);
-    const roof = new THREE.Mesh(rg, roofM); roof.position.y = plat + h + 0.45 + rh / 3; grp.add(roof);
-    const ridge = new THREE.Mesh(new THREE.BoxGeometry(w + 3.2, 0.28, 0.4), ridgeM); ridge.position.y = plat + h + 0.45 + rh; grp.add(ridge);
-    grp.position.set(x, 0, z); grp.rotation.y = ry; scene.add(grp);
-  }
-  hall(18, 7, 4.4, 3.2, 0, -21, 0, 1.0);                 // 정전
-  hall(38, 3, 2.8, 1.7, -16, -2, Math.PI / 2, 0.3);      // 좌우 행각
-  hall(38, 3, 2.8, 1.7, 16, -2, -Math.PI / 2, 0.3);
-  hall(38, 3, 2.8, 1.7, 0, 17, Math.PI, 0.3);
-
-  // 오방색 깃발
-  const flagCols = [0xc8372d, 0xe8c63a, 0x2c5fa8, 0xf2efe6, 0x26262a];
-  for (let i = 0; i < 10; i++) {
-    const x = -9 + i * 2, pole = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 3.6, 6), std(0x6b4a2e));
-    pole.position.set(x, 1.8, -14); scene.add(pole);
-    const flag = new THREE.Mesh(new THREE.PlaneGeometry(0.65, 1.3), std(flagCols[i % 5], { side: THREE.DoubleSide }));
-    flag.position.set(x + 0.36, 2.9, -14); scene.add(flag);
-  }
-  // 붉은 관복의 시험관
-  for (let i = 0; i < 6; i++) {
-    const x = -5 + i * 2, o = new THREE.Group();
-    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.3, 1.45, 10), std(0xa8322a)); body.position.y = 0.72; o.add(body);
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.11, 12, 10), std(0xe8c9a8)); head.position.y = 1.56; o.add(head);
-    const hat = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.14, 0.2), std(0x15151a)); hat.position.y = 1.7; o.add(hat);
-    o.position.set(x, 0, -15.5); scene.add(o);
-  }
-  // 나무
-  [[-21,-12],[-22,4],[21,-10],[22,6],[-9,-27],[10,-27],[-8,22],[9,22]].forEach(([x, z]) => {
-    const tr = new THREE.Mesh(new THREE.SphereGeometry(3.2, 10, 8), std(0x4c7a3a, { flatShading: true })); tr.position.set(x, 4.2, z); scene.add(tr);
-  });
-
-  // 돗자리에 앉아 시험 보는 유생들 (인스턴스)
-  const spots = [];
-  for (let z = -10.4; z <= 10; z += 2.6) for (let x = -9; x <= 9.01; x += 2.25)
-    if (!(Math.abs(x) < 1.6 && z > -5.5 && z < 1.8)) spots.push([x + Math.random()*0.2 - 0.1, z + Math.random()*0.2 - 0.1, Math.random()*0.3 - 0.15]);
-  const N = spots.length, D = new THREE.Object3D();
-  const inst = (geo, mat) => { const m = new THREE.InstancedMesh(geo, mat, N); scene.add(m); return m; };
-  const mats = inst(new THREE.PlaneGeometry(1.5, 2.0), std(0xd9c48f));
-  const bodies = inst(new THREE.CylinderGeometry(0.15, 0.36, 0.6, 10), std(0xbfe6e0));
-  const heads = inst(new THREE.SphereGeometry(0.11, 12, 10), std(0xe8c9a8));
-  const hats = inst(new THREE.BoxGeometry(0.2, 0.13, 0.2), std(0x15151a));
-  const sheets = inst(new THREE.PlaneGeometry(0.55, 0.75), std(0xfbf7ec));
-  spots.forEach(([x, z, yaw], i) => {
-    const fx = -Math.sin(yaw), fz = -Math.cos(yaw);           // 앞쪽(정전 방향)
-    const put = (mesh, px, py, pz, rx) => { D.position.set(px, py, pz); D.rotation.set(rx, yaw, 0, 'YXZ'); D.updateMatrix(); mesh.setMatrixAt(i, D.matrix); };
-    put(mats, x, 0.012, z - 0.25, -Math.PI / 2);
-    put(bodies, x, 0.3, z + 0.3, -0.22);
-    put(heads, x + fx*0.14, 0.68, z + 0.3 + fz*0.14, 0);
-    put(hats, x + fx*0.14, 0.81, z + 0.3 + fz*0.14, 0);
-    put(sheets, x + fx*0.62, 0.02, z + 0.3 + fz*0.62, -Math.PI / 2);
-  });
-  // 내 돗자리
-  const myMat = new THREE.Mesh(new THREE.PlaneGeometry(1.7, 2.3), std(0xd9c48f)); myMat.rotation.x = -Math.PI / 2; myMat.position.set(0, 0.012, -0.25); scene.add(myMat);
-})();
+const env = buildEnvironment(scene, renderer);
 
 // 서안(책상)
 const desk = new THREE.Group(); scene.add(desk);
@@ -614,10 +536,12 @@ function layoutScene() {
   if (S.layout === 'desk') { paper.position.set(0, h + 0.003, -0.40); paper.rotation.set(-Math.PI / 2, 0, 0); board.visible = false; }
   else { paper.position.set(0, h + 0.34, -0.56); paper.rotation.set(-0.3, 0, 0); board.visible = true; }
   ctrlMesh.position.set(-0.68, h + 0.34, -0.38); ctrlMesh.rotation.set(-0.12, 0.62, 0, 'YXZ');
-  infoMesh.position.set(0, h + 0.92, -0.95);
-  post.scale.y = h + 0.7; post.position.set(0, (h + 0.7) / 2, -0.99);
-  camera.position.set(-0.2, h + 0.86, 0.95);
-  camera.lookAt(-0.2, h + 0.46, -0.55);
+  // 정보판은 오른쪽에 세워 정면의 궁궐이 가리지 않게 함
+  infoMesh.scale.setScalar(0.78);
+  infoMesh.position.set(0.74, h + 0.36, -0.42); infoMesh.rotation.set(-0.1, -0.62, 0, 'YXZ');
+  post.visible = false;
+  camera.position.set(0, h + 0.86, 1.05);
+  camera.lookAt(0, h + 0.5, -0.55);
   scene.updateMatrixWorld(true);
 }
 
@@ -628,6 +552,7 @@ let AC = null;
 function initAudio() {
   if (!AC) { try { AC = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} }
   if (AC && AC.state === 'suspended') AC.resume();
+  env.startAmbience(AC);
 }
 function tone(f, t0, dur, vol = 0.1, type = 'sine') {
   if (!AC) return;
@@ -876,7 +801,7 @@ function updateHover() {
 renderer.setAnimationLoop(() => {
   const now = performance.now();
   if (renderer.xr.isPresenting) updateXR(); else ring.visible = false;
-  updateHover();
+  updateHover(); env.tick(now);
   if (flash && now >= flash.until) { flash = null; paperDirty = true; }
   if (S.nextAt && now >= S.nextAt) { S.ci++; resetChar(); startMsg(); }
   if (mode() === 'watch') { watchTick(now); paperDirty = true; }
@@ -903,7 +828,7 @@ Promise.all(['Noto Serif', 'Noto Serif KR'].flatMap(f => [400, 700].map(w => doc
 
 // 시험용: 콘솔에서 butgilDebug.writeNext() 를 부르면 다음 획을 정답대로 써 줌
 window.butgilDebug = {
-  state: S,
+  state: S, camera,
   writeNext() {
     const s = curStrokes()[S.progress];
     if (!s || !canDraw() || S.done) return false;
