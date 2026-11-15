@@ -1,0 +1,689 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>붓길 VR</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  html, body { margin: 0; height: 100%; background: #1e1712; overflow: hidden; font-family: 'Noto Serif KR', serif; }
+  canvas { display: block; touch-action: none; }
+  #help { position: fixed; left: 12px; top: 12px; max-width: 520px; margin-right: 12px; color: #f3e7cf;
+          background: rgba(20,14,10,.75); padding: 10px 14px; border-radius: 10px; font-size: 14px; line-height: 1.55; }
+  #help b { color: #ffd28a; }
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<div id="help">
+  <b>붓길 VR</b> · 한글·한자 쓰기 프로토타입<br>
+  PC: 마우스로 종이에 쓰기 · 왼쪽 판의 버튼 클릭<br>
+  Quest: 아래 <b>ENTER VR</b> → 붓끝(또는 검지 끝)을 종이에 대고 쓰기 · 버튼은 레이저로 가리키고 트리거(집기)
+</div>
+<script type="module">
+import * as THREE from 'three';
+import { VRButton } from 'three/addons/webxr/VRButton.js';
+import { XRHandModelFactory } from 'three/addons/webxr/XRHandModelFactory.js';
+
+/* =========================================================
+   1. 글자 데이터 — 0~100 좌표계(y는 아래로), 획마다 중심선
+   ========================================================= */
+function circ(cx, cy, r, n = 28) {           // 위에서 시작해 반시계 방향
+  const p = [];
+  for (let k = 0; k <= n; k++) {
+    const a = -Math.PI / 2 - (k / n) * Math.PI * 2;
+    p.push([cx + r * Math.cos(a), cy + r * Math.sin(a)]);
+  }
+  return p;
+}
+const JAMO = {
+  'ㄱ': [[[20,25],[76,25],[74,55],[66,82]]],
+  'ㄴ': [[[25,20],[25,75],[80,75]]],
+  'ㄷ': [[[25,25],[75,25]], [[25,25],[25,75],[78,75]]],
+  'ㄹ': [[[25,20],[75,20],[75,48]], [[25,48],[75,48]], [[25,48],[25,80],[78,80]]],
+  'ㅁ': [[[25,22],[25,78]], [[25,22],[75,22],[75,78]], [[25,78],[75,78]]],
+  'ㅂ': [[[27,18],[27,80]], [[73,18],[73,80]], [[27,48],[73,48]], [[27,80],[73,80]]],
+  'ㅅ': [[[52,18],[42,50],[20,82]], [[47,48],[62,66],[82,82]]],
+  'ㅇ': [circ(50,50,28)],
+  'ㅈ': [[[22,22],[74,22],[48,52],[20,82]], [[50,50],[64,66],[82,82]]],
+  'ㅊ': [[[45,8],[56,17]], [[22,30],[74,30],[48,56],[20,84]], [[50,55],[64,70],[82,84]]],
+  'ㅋ': [[[22,22],[76,22],[74,52],[66,82]], [[24,50],[74,50]]],
+  'ㅌ': [[[25,22],[75,22]], [[25,50],[73,50]], [[25,22],[25,78],[78,78]]],
+  'ㅍ': [[[18,22],[82,22]], [[36,22],[38,76]], [[64,22],[62,76]], [[14,78],[86,78]]],
+  'ㅎ': [[[50,8],[50,19]], [[24,28],[76,28]], circ(50,62,20)],
+  'ㅏ': [[[42,12],[42,88]], [[42,50],[68,50]]],
+  'ㅑ': [[[40,12],[40,88]], [[40,38],[66,38]], [[40,62],[66,62]]],
+  'ㅓ': [[[30,50],[58,50]], [[58,12],[58,88]]],
+  'ㅕ': [[[30,38],[60,38]], [[30,62],[60,62]], [[60,12],[60,88]]],
+  'ㅗ': [[[50,30],[50,58]], [[14,60],[86,60]]],
+  'ㅛ': [[[38,32],[38,58]], [[62,32],[62,58]], [[14,60],[86,60]]],
+  'ㅜ': [[[14,40],[86,40]], [[50,40],[50,72]]],
+  'ㅠ': [[[14,40],[86,40]], [[38,40],[38,72]], [[62,40],[62,72]]],
+  'ㅡ': [[[12,50],[88,50]]],
+  'ㅣ': [[[50,12],[50,88]]],
+};
+const JAMO_INFO = [
+  ['ㄱ','기역','g / k'],['ㄴ','니은','n'],['ㄷ','디귿','d / t'],['ㄹ','리을','r / l'],['ㅁ','미음','m'],
+  ['ㅂ','비읍','b / p'],['ㅅ','시옷','s'],['ㅇ','이응','silent / ng'],['ㅈ','지읒','j'],['ㅊ','치읓','ch'],
+  ['ㅋ','키읔','k'],['ㅌ','티읕','t'],['ㅍ','피읖','p'],['ㅎ','히읗','h'],
+  ['ㅏ','아','a'],['ㅑ','야','ya'],['ㅓ','어','eo'],['ㅕ','여','yeo'],['ㅗ','오','o'],
+  ['ㅛ','요','yo'],['ㅜ','우','u'],['ㅠ','유','yu'],['ㅡ','으','eu'],['ㅣ','이','i'],
+];
+// 자모를 상자 안에 배치해 음절을 조합
+const place = (strokes, [x0,y0,x1,y1]) => strokes.map(s => s.map(([x,y]) => [x0 + x/100*(x1-x0), y0 + y/100*(y1-y0)]));
+const syl = parts => parts.flatMap(([j, box]) => place(JAMO[j], box));
+
+const CHARS = {
+  jamo: JAMO_INFO.map(([ch, name, rom], i) => ({
+    ch, name, rom, speak: name, strokes: JAMO[ch],
+    ko: i < 14 ? '자음 (닿소리)' : '모음 (홀소리)', en: i < 14 ? 'consonant' : 'vowel',
+  })),
+  syl: [
+    { ch:'가', name:'가', rom:'ga',   ko:'ㄱ + ㅏ',     en:'g + a',      speak:'가', strokes: syl([['ㄱ',[0,5,58,95]], ['ㅏ',[42,0,100,100]]]) },
+    { ch:'나', name:'나', rom:'na',   ko:'ㄴ + ㅏ',     en:'n + a (I, me)', speak:'나', strokes: syl([['ㄴ',[2,5,60,95]], ['ㅏ',[42,0,100,100]]]) },
+    { ch:'한', name:'한', rom:'han',  ko:'ㅎ + ㅏ + ㄴ', en:'h + a + n',  speak:'한', strokes: syl([['ㅎ',[0,0,56,56]], ['ㅏ',[40,0,100,62]], ['ㄴ',[10,50,90,100]]]) },
+    { ch:'글', name:'글', rom:'geul', ko:'ㄱ + ㅡ + ㄹ', en:'g + eu + l (writing)', speak:'글', strokes: syl([['ㄱ',[10,0,90,40]], ['ㅡ',[5,30,95,60]], ['ㄹ',[15,50,85,100]]]) },
+  ],
+  hanja: [
+    { ch:'一', name:'한 일',     rom:'il',   ko:'하나',   en:'one',        strokes:[[[12,50],[88,50]]] },
+    { ch:'二', name:'두 이',     rom:'i',    ko:'둘',     en:'two',        strokes:[[[25,35],[75,35]], [[12,68],[88,68]]] },
+    { ch:'三', name:'석 삼',     rom:'sam',  ko:'셋',     en:'three',      strokes:[[[22,25],[78,25]], [[28,50],[72,50]], [[12,78],[88,78]]] },
+    { ch:'十', name:'열 십',     rom:'sip',  ko:'열',     en:'ten',        strokes:[[[12,48],[88,48]], [[50,10],[50,90]]] },
+    { ch:'人', name:'사람 인',   rom:'in',   ko:'사람',   en:'person',     strokes:[[[52,12],[44,50],[18,86]], [[48,46],[66,68],[86,86]]] },
+    { ch:'大', name:'큰 대',     rom:'dae',  ko:'크다',   en:'big',        strokes:[[[14,38],[86,38]], [[52,12],[46,56],[16,88]], [[50,50],[66,70],[88,88]]] },
+    { ch:'口', name:'입 구',     rom:'gu',   ko:'입',     en:'mouth',      strokes:[[[25,22],[25,80]], [[25,22],[75,22],[75,80]], [[25,78],[75,78]]] },
+    { ch:'日', name:'날 일',     rom:'il',   ko:'해, 날', en:'sun, day',   strokes:[[[28,12],[28,88]], [[28,12],[72,12],[72,88]], [[28,50],[72,50]], [[28,86],[72,86]]] },
+    { ch:'山', name:'메 산',     rom:'san',  ko:'산',     en:'mountain',   strokes:[[[50,10],[50,82]], [[22,36],[22,82],[78,82]], [[78,36],[78,82]]] },
+    { ch:'木', name:'나무 목',   rom:'mok',  ko:'나무',   en:'tree, wood', strokes:[[[12,36],[88,36]], [[50,10],[50,92]], [[48,38],[30,64],[12,80]], [[52,38],[70,62],[88,78]]] },
+    { ch:'中', name:'가운데 중', rom:'jung', ko:'가운데', en:'middle',     strokes:[[[24,30],[24,68]], [[24,30],[76,30],[76,68]], [[24,66],[76,66]], [[50,8],[50,94]]] },
+  ].map(c => ({ ...c, speak: c.name })),
+};
+
+const T = {
+  ko: { jamo:'한글 자모', syl:'한글 글자', hanja:'한자', watch:'획순 보기', trace:'따라 쓰기', test:'혼자 쓰기', free:'자유 쓰기',
+        clear:'지우기', listen:'🔊 듣기', prev:'◀ 이전', next:'다음 ▶', desk:'책상에 놓기', easel:'세워 놓기',
+        up:'높이 ▲', down:'높이 ▼', lang:'English', stroke:'획', strokes:'획', best:'최고',
+        start:'붓끝을 종이에 대고 써 보세요', good:'좋아요! 다음 획', dir:'방향이 반대예요',
+        order:'획순이 달라요', shape:'그 획을 다시 써 보세요', done:'완성! 잘했어요',
+        watchMsg:'획순을 잘 보세요', freeMsg:'마음껏 써 보세요', hint:'힌트를 보여 줄게요' },
+  en: { jamo:'Hangul Jamo', syl:'Syllables', hanja:'Hanja', watch:'Watch', trace:'Trace', test:'Test', free:'Free',
+        clear:'Clear', listen:'🔊 Listen', prev:'◀ Prev', next:'Next ▶', desk:'Lay flat', easel:'Stand up',
+        up:'Height ▲', down:'Height ▼', lang:'한국어', stroke:'Stroke', strokes:'strokes', best:'Best',
+        start:'Touch the paper with the brush tip', good:'Good! Next stroke', dir:'Wrong direction',
+        order:'Wrong stroke order', shape:'Try that stroke again', done:'Complete! Well done',
+        watchMsg:'Watch the stroke order', freeMsg:'Write freely', hint:'Here is a hint' },
+};
+const FONT = '"Noto Serif KR", serif';
+
+/* =========================================================
+   2. 상태 / 저장
+   ========================================================= */
+const S = { cat:'jamo', idx:0, mode:'trace', lang:'ko', layout:'desk', deskH:0.72,
+            progress:0, mistakes:0, streakFail:0, done:false, stars:0, msgKey:'start', msgColor:'#3b2a1c' };
+let best = {};
+try { best = JSON.parse(localStorage.getItem('butgil.best') || '{}'); } catch (e) {}
+try { Object.assign(S, JSON.parse(localStorage.getItem('butgil.settings') || '{}')); } catch (e) {}
+function save() {
+  try {
+    localStorage.setItem('butgil.best', JSON.stringify(best));
+    localStorage.setItem('butgil.settings', JSON.stringify({ lang:S.lang, layout:S.layout, deskH:S.deskH }));
+  } catch (e) {}
+}
+const cur = () => CHARS[S.cat][S.idx];
+
+/* =========================================================
+   3. 기하 / 채점 도구
+   ========================================================= */
+const dist = (a, b) => Math.hypot(a[0]-b[0], a[1]-b[1]);
+function pathLen(p) { let L = 0; for (let i = 1; i < p.length; i++) L += dist(p[i], p[i-1]); return L; }
+function resample(pts, n) {
+  const L = pathLen(pts);
+  if (pts.length < 2 || L < 1e-6) return Array.from({ length:n }, () => pts[0].slice());
+  const I = L / (n - 1), out = [pts[0].slice()];
+  let D = 0, a = pts[0].slice();
+  for (let i = 1; i < pts.length; i++) {
+    const b = pts[i];
+    let d = dist(a, b);
+    while (D + d >= I && out.length < n) {
+      const t = (I - D) / d;
+      const q = [a[0] + t*(b[0]-a[0]), a[1] + t*(b[1]-a[1])];
+      out.push(q); a = q; d = dist(a, b); D = 0;
+    }
+    D += d; a = b.slice();
+  }
+  while (out.length < n) out.push(pts[pts.length-1].slice());
+  return out;
+}
+const avgDist = (A, B) => A.reduce((s, p, i) => s + dist(p, B[i]), 0) / A.length;
+function partial(p, f) {
+  const target = pathLen(p) * f, out = [p[0]];
+  let acc = 0;
+  for (let i = 1; i < p.length; i++) {
+    const d = dist(p[i], p[i-1]);
+    if (acc + d >= target) { const t = (target - acc) / (d || 1); out.push([p[i-1][0] + t*(p[i][0]-p[i-1][0]), p[i-1][1] + t*(p[i][1]-p[i-1][1])]); return out; }
+    acc += d; out.push(p[i]);
+  }
+  return out;
+}
+
+/* =========================================================
+   4. 캔버스 텍스처 (종이 / 조작판 / 정보판)
+   ========================================================= */
+const PX = 1024 / 100;
+const mkCanvas = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; };
+const paperCv = mkCanvas(1024, 1024), pc = paperCv.getContext('2d');
+const baseCv  = mkCanvas(1024, 1024), bc = baseCv.getContext('2d');
+const inkCv   = mkCanvas(1024, 1024), kc = inkCv.getContext('2d');
+const fiberCv = mkCanvas(1024, 1024);
+const ctrlCv  = mkCanvas(1024, 1024), cc = ctrlCv.getContext('2d');
+const infoCv  = mkCanvas(1024, 512),  ic = infoCv.getContext('2d');
+
+(function makeFiber() {                       // 한지 질감
+  const g = fiberCv.getContext('2d');
+  g.fillStyle = '#f3ead6'; g.fillRect(0, 0, 1024, 1024);
+  for (let i = 0; i < 1600; i++) {
+    g.strokeStyle = `rgba(150,120,80,${0.03 + Math.random()*0.05})`; g.lineWidth = 1 + Math.random();
+    const x = Math.random()*1024, y = Math.random()*1024, a = Math.random()*Math.PI*2, l = 8 + Math.random()*30;
+    g.beginPath(); g.moveTo(x, y);
+    g.quadraticCurveTo(x + Math.cos(a+0.6)*l/2, y + Math.sin(a+0.6)*l/2, x + Math.cos(a)*l, y + Math.sin(a)*l); g.stroke();
+  }
+})();
+
+function rr(g, x, y, w, h, r) {
+  g.beginPath(); g.moveTo(x+r, y);
+  g.arcTo(x+w, y, x+w, y+h, r); g.arcTo(x+w, y+h, x, y+h, r);
+  g.arcTo(x, y+h, x, y, r); g.arcTo(x, y, x+w, y, r); g.closePath();
+}
+function fit(g, text, x, y, maxW, size, weight = 700) {
+  let s = size;
+  do { g.font = `${weight} ${s}px ${FONT}`; if (g.measureText(text).width <= maxW) break; s -= 2; } while (s > 14);
+  g.fillText(text, x, y);
+}
+function polyline(g, p, w, color, dash) {
+  g.save(); g.strokeStyle = color; g.lineWidth = w * PX; g.lineCap = 'round'; g.lineJoin = 'round';
+  if (dash) g.setLineDash(dash);
+  g.beginPath(); p.forEach(([x, y], i) => i ? g.lineTo(x*PX, y*PX) : g.moveTo(x*PX, y*PX)); g.stroke(); g.restore();
+}
+function stamp(g, a, b, wa, wb) {             // 붓 자국: 원을 촘촘히 찍기
+  const dx = (b[0]-a[0])*PX, dy = (b[1]-a[1])*PX, d = Math.hypot(dx, dy), n = Math.max(1, Math.ceil(d / 1.5));
+  for (let k = 0; k <= n; k++) {
+    const t = k / n, r = (wa + (wb - wa) * t) * PX / 2;
+    g.beginPath(); g.arc(a[0]*PX + dx*t, a[1]*PX + dy*t, r, 0, Math.PI*2); g.fill();
+  }
+}
+function drawStroke(g, st, color) {
+  g.fillStyle = color;
+  if (st.pts.length === 1) stamp(g, st.pts[0], st.pts[0], st.ws[0], st.ws[0]);
+  for (let i = 1; i < st.pts.length; i++) stamp(g, st.pts[i-1], st.pts[i], st.ws[i-1], st.ws[i]);
+}
+function numLabel(g, pt, n) {
+  const x = Math.max(4, pt[0] - 4.5) * PX, y = Math.max(4, pt[1] - 4.5) * PX;
+  g.fillStyle = '#c9452f'; g.beginPath(); g.arc(x, y, 2.9*PX, 0, Math.PI*2); g.fill();
+  g.fillStyle = '#fff'; g.font = `700 ${3.6*PX}px ${FONT}`; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillText(String(n), x, y + 2);
+}
+
+let userStrokes = [], drawing = null, flash = null, watchStart = performance.now();
+let paperDirty = true, ctrlDirty = true, infoDirty = true;
+
+function buildBase() {
+  bc.drawImage(fiberCv, 0, 0);
+  bc.strokeStyle = 'rgba(170,50,40,.55)'; bc.lineWidth = 6; bc.strokeRect(24, 24, 976, 976);
+  bc.save(); bc.strokeStyle = 'rgba(170,50,40,.25)'; bc.lineWidth = 3; bc.setLineDash([16, 14]);
+  [[512,24,512,1000],[24,512,1000,512],[24,24,1000,1000],[1000,24,24,1000]].forEach(([a,b,c,d]) => {
+    bc.beginPath(); bc.moveTo(a, b); bc.lineTo(c, d); bc.stroke();
+  });
+  bc.restore();
+  if (S.mode === 'trace' || S.mode === 'watch') {
+    const col = S.mode === 'trace' ? 'rgba(110,95,80,.30)' : 'rgba(110,95,80,.13)';
+    cur().strokes.forEach(s => polyline(bc, s, 10, col));
+  }
+}
+function redrawInk() {
+  kc.clearRect(0, 0, 1024, 1024);
+  userStrokes.forEach(st => drawStroke(kc, st, '#16110d'));
+}
+function drawHint(s, n) {
+  polyline(pc, s, 3.2, 'rgba(225,115,30,.75)', [18, 14]);
+  const a = s[s.length-2], b = s[s.length-1], ang = Math.atan2(b[1]-a[1], b[0]-a[0]);
+  pc.fillStyle = 'rgba(225,115,30,.9)'; pc.beginPath();
+  pc.moveTo(b[0]*PX + Math.cos(ang)*3*PX, b[1]*PX + Math.sin(ang)*3*PX);
+  pc.lineTo(b[0]*PX + Math.cos(ang+2.5)*4*PX, b[1]*PX + Math.sin(ang+2.5)*4*PX);
+  pc.lineTo(b[0]*PX + Math.cos(ang-2.5)*4*PX, b[1]*PX + Math.sin(ang-2.5)*4*PX); pc.fill();
+  pc.fillStyle = '#2e9b57'; pc.beginPath(); pc.arc(s[0][0]*PX, s[0][1]*PX, 2.6*PX, 0, Math.PI*2); pc.fill();
+  pc.fillStyle = '#fff'; pc.font = `700 ${3.2*PX}px ${FONT}`; pc.textAlign = 'center'; pc.textBaseline = 'middle';
+  pc.fillText(String(n), s[0][0]*PX, s[0][1]*PX + 2);
+}
+function drawWatch(now) {
+  const strokes = cur().strokes, durs = strokes.map(s => 0.3 + pathLen(s) / 65);
+  const total = durs.reduce((a, d) => a + d + 0.25, 0) + 1.2;
+  let t = ((now - watchStart) / 1000) % total;
+  for (let k = 0; k < strokes.length; k++) {
+    if (t >= durs[k]) { polyline(pc, strokes[k], 9, '#1b1410'); numLabel(pc, strokes[k][0], k+1); t -= durs[k] + 0.25; if (t < 0) break; }
+    else { polyline(pc, partial(strokes[k], t / durs[k]), 9, '#1b1410'); numLabel(pc, strokes[k][0], k+1); break; }
+  }
+}
+function compose(now) {
+  pc.drawImage(baseCv, 0, 0); pc.drawImage(inkCv, 0, 0);
+  const ch = cur();
+  if (S.mode === 'watch') drawWatch(now);
+  else if (S.mode !== 'free' && !S.done && (S.mode === 'trace' || S.streakFail >= 2) && S.progress < ch.strokes.length)
+    drawHint(ch.strokes[S.progress], S.progress + 1);
+  if (flash) drawStroke(pc, flash.st, 'rgba(200,40,30,.75)');
+  paperTex.needsUpdate = true;
+}
+
+let btns = [], hoverSet = new Set(), hoverKey = '';
+function drawCtrl() {
+  const g = cc, t = T[S.lang]; btns = [];
+  g.fillStyle = '#3a2718'; g.fillRect(0, 0, 1024, 1024);
+  const add = (x, y, w, h, label, action, active, size) => btns.push({ x, y, w, h, label, action, active, size });
+  ['jamo','syl','hanja'].forEach((c, i) => add(20 + i*331, 20, 315, 96, t[c], 'cat:'+c, S.cat === c, 42));
+  CHARS[S.cat].forEach((c, i) => btns.push({ x: 20 + (i%6)*164, y: 136 + Math.floor(i/6)*132, w: 156, h: 128,
+    label: c.ch, action: 'char:'+i, active: i === S.idx, size: 72, cell: true, stars: best[c.ch] || 0 }));
+  ['watch','trace','test','free'].forEach((m, i) => add(20 + i*248, 676, 236, 92, t[m], 'mode:'+m, S.mode === m, 38));
+  ['clear','listen','prev','next'].forEach((a, i) => add(20 + i*248, 784, 236, 92, t[a], a, false, 38));
+  [[S.layout === 'desk' ? t.easel : t.desk, 'layout'], [t.up, 'up'], [t.down, 'down'], [t.lang, 'lang']]
+    .forEach(([l, a], i) => add(20 + i*248, 892, 236, 92, l, a, false, 36));
+  btns.forEach((b, i) => {
+    const hov = hoverSet.has(i);
+    g.fillStyle = b.active ? '#c9452f' : (hov ? '#fff3d6' : '#efe1c2'); rr(g, b.x, b.y, b.w, b.h, 14); g.fill();
+    if (hov) { g.strokeStyle = '#ffd28a'; g.lineWidth = 6; g.stroke(); }
+    g.fillStyle = b.active ? '#fff' : '#2a1c10'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    if (b.cell) {
+      g.font = `400 ${b.size}px ${FONT}`; g.fillText(b.label, b.x + b.w/2, b.y + b.h/2 - 12);
+      g.font = `400 22px ${FONT}`; g.fillStyle = b.active ? '#ffe2a8' : '#c08a1e';
+      g.fillText('★'.repeat(b.stars) + '☆'.repeat(3 - b.stars), b.x + b.w/2, b.y + b.h - 18);
+    } else fit(g, b.label, b.x + b.w/2, b.y + b.h/2 + 2, b.w - 20, b.size);
+  });
+}
+function drawInfo() {
+  const g = ic, t = T[S.lang], c = cur();
+  g.fillStyle = '#6b4a2e'; g.fillRect(0, 0, 1024, 512);
+  g.fillStyle = '#f6eedb'; rr(g, 14, 14, 996, 484, 22); g.fill();
+  g.fillStyle = '#fffaf0'; rr(g, 40, 40, 432, 432, 16); g.fill();
+  g.strokeStyle = 'rgba(170,50,40,.4)'; g.lineWidth = 3; g.stroke();
+  g.fillStyle = '#1b1410'; g.font = `400 330px ${FONT}`; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillText(c.ch, 256, 268);
+  g.textAlign = 'left'; g.textBaseline = 'alphabetic';
+  g.fillStyle = '#2a1c10'; fit(g, c.name, 500, 120, 490, 70);
+  g.fillStyle = '#6d5a48'; fit(g, `${c.rom} · ${S.lang === 'ko' ? c.ko : c.en}`, 500, 172, 490, 34, 400);
+  let prog = t[S.mode];
+  if (S.mode === 'trace' || S.mode === 'test') prog += ` · ${t.stroke} ${Math.min(S.progress + 1, c.strokes.length)} / ${c.strokes.length}`;
+  else if (S.mode === 'watch') prog += ` · ${c.strokes.length} ${t.strokes}`;
+  g.fillStyle = '#8a3a28'; fit(g, prog, 500, 248, 490, 36);
+  g.fillStyle = S.msgColor; fit(g, t[S.msgKey], 500, 330, 490, 46);
+  if (S.mode === 'trace' || S.mode === 'test') {
+    if (S.done) { g.fillStyle = '#d49a1e'; g.font = `400 60px ${FONT}`; g.fillText('★'.repeat(S.stars) + '☆'.repeat(3 - S.stars), 500, 418); }
+    const b = best[c.ch] || 0;
+    g.fillStyle = '#6d5a48'; g.font = `400 30px ${FONT}`; g.fillText(`${t.best} ${'★'.repeat(b)}${'☆'.repeat(3 - b)}`, 500, 470);
+  }
+}
+
+/* =========================================================
+   5. 3D 장면
+   ========================================================= */
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.xr.enabled = true;
+renderer.xr.setReferenceSpaceType('local-floor');
+document.body.appendChild(renderer.domElement);
+document.body.appendChild(VRButton.createButton(renderer));
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x2a2018);
+const camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.01, 50);
+scene.add(new THREE.HemisphereLight(0xfff4e0, 0x5a4630, 1.4));
+const sun = new THREE.DirectionalLight(0xffffff, 1.2); sun.position.set(1, 3, 2); scene.add(sun);
+
+const canvasTex = (cv, repeat) => {
+  const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  if (repeat) { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(repeat, repeat); }
+  return t;
+};
+const std = (color, extra = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.85, ...extra });
+
+// 방(한옥 느낌): 마루 바닥, 벽, 대들보, 창호
+(function room() {
+  const fc = mkCanvas(512, 512), g = fc.getContext('2d');
+  for (let i = 0; i < 8; i++) {
+    g.fillStyle = `hsl(28,38%,${36 + Math.random()*10}%)`; g.fillRect(0, i*64, 512, 64);
+    g.fillStyle = 'rgba(0,0,0,.28)'; g.fillRect(0, i*64, 512, 2);
+    for (let k = 0; k < 24; k++) {
+      g.strokeStyle = 'rgba(60,35,15,.12)'; const y = i*64 + Math.random()*64;
+      g.beginPath(); g.moveTo(0, y); g.bezierCurveTo(170, y + Math.random()*8 - 4, 340, y + Math.random()*8 - 4, 512, y); g.stroke();
+    }
+  }
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(6, 6), std(0xffffff, { map: canvasTex(fc, 3) }));
+  floor.rotation.x = -Math.PI / 2; scene.add(floor);
+  const wallM = std(0xeadfca), beamM = std(0x4a3020);
+  [[0, -3, 0], [0, 3, Math.PI], [-3, 0, Math.PI/2], [3, 0, -Math.PI/2]].forEach(([x, z, r]) => {
+    const w = new THREE.Mesh(new THREE.PlaneGeometry(6, 3), wallM); w.position.set(x, 1.5, z); w.rotation.y = r; scene.add(w);
+    const beam = new THREE.Mesh(new THREE.BoxGeometry(6, 0.16, 0.12), beamM); beam.position.set(x*0.98, 2.3, z*0.98); beam.rotation.y = r; scene.add(beam);
+  });
+  [[-2.94,-2.94],[2.94,-2.94],[-2.94,2.94],[2.94,2.94],[0,-2.94],[-2.94,0],[2.94,0]].forEach(([x, z]) => {
+    const p = new THREE.Mesh(new THREE.BoxGeometry(0.14, 3, 0.14), beamM); p.position.set(x, 1.5, z); scene.add(p);
+  });
+  const lc = mkCanvas(512, 320), lg = lc.getContext('2d');      // 창호지 격자
+  lg.fillStyle = '#fbf5e6'; lg.fillRect(0, 0, 512, 320); lg.fillStyle = '#5a3a24';
+  for (let x = 0; x <= 512; x += 64) lg.fillRect(x - 4, 0, 8, 320);
+  for (let y = 0; y <= 320; y += 64) lg.fillRect(0, y - 4, 512, 8);
+  lg.strokeStyle = '#5a3a24'; lg.lineWidth = 24; lg.strokeRect(0, 0, 512, 320);
+  const winM = new THREE.MeshBasicMaterial({ map: canvasTex(lc) });
+  [[-1.5, -2.99, 0], [1.5, -2.99, 0], [-2.99, -1, Math.PI/2], [2.99, -1, -Math.PI/2]].forEach(([x, z, r]) => {
+    const w = new THREE.Mesh(new THREE.PlaneGeometry(1.3, 0.8), winM);
+    w.position.set(r ? x : x, 1.45, r ? z : z); w.rotation.y = r; scene.add(w);
+  });
+  const cushion = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.06, 28), std(0x8c2f2f)); cushion.position.set(0, 0.03, 0.15); scene.add(cushion);
+})();
+
+// 책상
+const desk = new THREE.Group(); scene.add(desk);
+const deskTop = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.04, 0.64), std(0x5b3a24, { roughness: 0.6 }));
+deskTop.position.set(0, -0.02, -0.40); desk.add(deskTop);
+const legs = [[-0.54,-0.15],[0.54,-0.15],[-0.54,-0.66],[0.54,-0.66]].map(([x, z]) => {
+  const l = new THREE.Mesh(new THREE.BoxGeometry(0.05, 1, 0.05), std(0x4a2e1c)); l.position.set(x, 0, z); desk.add(l); return l;
+});
+const inkStone = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.025, 0.15), std(0x1f1f22, { roughness: 0.4 }));
+inkStone.position.set(0.36, 0.0125, -0.40); desk.add(inkStone);
+const well = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.002, 0.04), std(0x050507, { roughness: 0.1 }));
+well.position.set(0.36, 0.026, -0.45); desk.add(well);
+
+// 종이
+const PW = 0.42, PH = 0.42;
+const paperTex = canvasTex(paperCv);
+const paper = new THREE.Mesh(new THREE.PlaneGeometry(PW, PH), new THREE.MeshBasicMaterial({ map: paperTex }));
+scene.add(paper);
+const felt = new THREE.Mesh(new THREE.PlaneGeometry(PW + 0.05, PH + 0.05), std(0x1f1c1a)); felt.position.z = -0.002; paper.add(felt);
+const board = new THREE.Mesh(new THREE.BoxGeometry(PW + 0.08, PH + 0.08, 0.02), std(0x4a2e1c)); board.position.z = -0.014; paper.add(board);
+const ring = new THREE.Mesh(new THREE.RingGeometry(0.004, 0.0065, 24), new THREE.MeshBasicMaterial({ color: 0x2a1c10, transparent: true, opacity: 0.7 }));
+ring.position.z = 0.0015; ring.visible = false; paper.add(ring);
+
+// 조작판 / 정보판
+const ctrlTex = canvasTex(ctrlCv), infoTex = canvasTex(infoCv);
+const ctrlMesh = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.5), new THREE.MeshBasicMaterial({ map: ctrlTex })); scene.add(ctrlMesh);
+const infoMesh = new THREE.Mesh(new THREE.PlaneGeometry(1.0, 0.5), new THREE.MeshBasicMaterial({ map: infoTex })); scene.add(infoMesh);
+
+function layoutScene() {
+  const h = S.deskH;
+  desk.position.y = h;
+  legs.forEach(l => { l.scale.y = h - 0.04; l.position.y = -0.04 - (h - 0.04) / 2; });
+  if (S.layout === 'desk') { paper.position.set(0, h + 0.003, -0.40); paper.rotation.set(-Math.PI / 2, 0, 0); board.visible = false; }
+  else { paper.position.set(0, h + 0.34, -0.56); paper.rotation.set(-0.3, 0, 0); board.visible = true; }
+  ctrlMesh.position.set(-0.68, h + 0.34, -0.38); ctrlMesh.rotation.set(-0.12, 0.62, 0, 'YXZ');
+  infoMesh.position.set(0, h + 0.92, -0.95);
+  camera.position.set(-0.2, h + 0.78, 0.82);
+  camera.lookAt(-0.2, h + 0.36, -0.55);
+  scene.updateMatrixWorld(true);
+}
+
+/* =========================================================
+   6. 소리 / 음성 / 진동
+   ========================================================= */
+let AC = null;
+function initAudio() {
+  if (!AC) { try { AC = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} }
+  if (AC && AC.state === 'suspended') AC.resume();
+}
+function tone(f, t0, dur, vol = 0.1, type = 'sine') {
+  if (!AC) return;
+  const o = AC.createOscillator(), g = AC.createGain(), t = AC.currentTime + t0;
+  o.type = type; o.frequency.value = f;
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(g).connect(AC.destination); o.start(t); o.stop(t + dur + 0.05);
+}
+const sfx = {
+  click: () => tone(660, 0, 0.05, 0.05),
+  ok:    () => tone(880, 0, 0.12, 0.08),
+  fail:  () => tone(220, 0, 0.25, 0.1, 'triangle'),
+  done:  () => [523, 659, 784, 1047].forEach((f, i) => tone(f, i * 0.11, 0.3, 0.09)),
+};
+function speak() {
+  try {
+    const u = new SpeechSynthesisUtterance(cur().speak); u.lang = 'ko-KR'; u.rate = 0.85;
+    const v = speechSynthesis.getVoices().find(v => (v.lang || '').toLowerCase().startsWith('ko')); if (v) u.voice = v;
+    speechSynthesis.cancel(); speechSynthesis.speak(u);
+  } catch (e) {}
+}
+const ctrls = [], hands = [], xrHover = [-1, -1];
+function haptic(i, v, ms) {
+  if (typeof i !== 'number') return;
+  try {
+    const g = ctrls[i]?.userData.src?.gamepad, a = g?.hapticActuators?.[0];
+    if (a?.pulse) a.pulse(v, ms);
+    else g?.vibrationActuator?.playEffect?.('dual-rumble', { duration: ms, strongMagnitude: v, weakMagnitude: v });
+  } catch (e) {}
+}
+
+/* =========================================================
+   7. 쓰기 / 채점
+   ========================================================= */
+const wOf = p => 1.8 + p * 7.5;              // 누르는 깊이 → 붓 굵기(0~100 단위)
+function setMsg(key, color = '#3b2a1c') { S.msgKey = key; S.msgColor = color; infoDirty = true; }
+function resetChar() {
+  Object.assign(S, { progress: 0, mistakes: 0, streakFail: 0, done: false, stars: 0 });
+  userStrokes = []; drawing = null; flash = null; watchStart = performance.now();
+  setMsg(S.mode === 'watch' ? 'watchMsg' : S.mode === 'free' ? 'freeMsg' : 'start');
+  buildBase(); redrawInk(); paperDirty = ctrlDirty = infoDirty = true;
+}
+function beginStroke(owner, pt, p) {
+  drawing = { owner, pts: [pt], ws: [wOf(p)], p };
+  kc.fillStyle = '#16110d'; stamp(kc, pt, pt, drawing.ws[0], drawing.ws[0]); paperDirty = true;
+}
+function addPoint(pt, p) {
+  const d = drawing; d.p = d.p * 0.75 + p * 0.25;
+  const last = d.pts[d.pts.length - 1], w = wOf(d.p);
+  if (dist(last, pt) < 0.35) return;
+  kc.fillStyle = '#16110d'; stamp(kc, last, pt, d.ws[d.ws.length - 1], w);
+  d.pts.push(pt); d.ws.push(w); paperDirty = true;
+}
+function endStroke() { const st = drawing; drawing = null; if (st) evaluate(st); }
+
+function evaluate(st) {
+  if (S.mode === 'free') { userStrokes.push(st); return; }
+  const ch = cur(), k = S.progress;
+  if (S.done || k >= ch.strokes.length) { redrawInk(); paperDirty = true; return; }
+  const R = resample(st.pts, 24), E = resample(ch.strokes[k], 24);
+  const thr = S.mode === 'trace' ? 13 : 16;
+  const d = avgDist(R, E);
+  if (d < thr) {
+    userStrokes.push(st); S.progress++; S.streakFail = 0;
+    haptic(st.owner, 0.5, 40);
+    if (S.progress >= ch.strokes.length) {
+      S.done = true; S.stars = S.mistakes === 0 ? 3 : S.mistakes <= 2 ? 2 : 1;
+      best[ch.ch] = Math.max(best[ch.ch] || 0, S.stars); save();
+      setMsg('done', '#2e7d4a'); sfx.done(); speak(); haptic(st.owner, 0.9, 150); ctrlDirty = true;
+    } else { setMsg('good', '#2e7d4a'); sfx.ok(); }
+  } else {
+    S.mistakes++; S.streakFail++;
+    let why = 'shape';
+    if (avgDist(R, E.slice().reverse()) < thr) why = 'dir';
+    else if (ch.strokes.some((s, j) => j > k && avgDist(R, resample(s, 24)) < thr)) why = 'order';
+    setMsg(S.mode === 'test' && S.streakFail === 2 ? 'hint' : why, '#b23a26');
+    flash = { st, until: performance.now() + 700 };
+    redrawInk(); sfx.fail(); haptic(st.owner, 0.25, 120);
+  }
+  paperDirty = true;
+}
+
+/* =========================================================
+   8. 버튼 동작
+   ========================================================= */
+function btnIndexAt(uv) {
+  const x = uv.x * 1024, y = (1 - uv.y) * 1024;
+  return btns.findIndex(b => x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h);
+}
+function act(a) {
+  initAudio(); sfx.click();
+  const n = CHARS[S.cat].length;
+  if (a.startsWith('cat:')) { S.cat = a.slice(4); S.idx = 0; resetChar(); }
+  else if (a.startsWith('char:')) { S.idx = +a.slice(5); resetChar(); }
+  else if (a.startsWith('mode:')) { S.mode = a.slice(5); resetChar(); }
+  else if (a === 'clear') resetChar();
+  else if (a === 'listen') speak();
+  else if (a === 'prev') { S.idx = (S.idx - 1 + n) % n; resetChar(); }
+  else if (a === 'next') { S.idx = (S.idx + 1) % n; resetChar(); }
+  else if (a === 'layout') { S.layout = S.layout === 'desk' ? 'easel' : 'desk'; layoutScene(); }
+  else if (a === 'up') { S.deskH = Math.min(1.25, +(S.deskH + 0.04).toFixed(2)); layoutScene(); }
+  else if (a === 'down') { S.deskH = Math.max(0.45, +(S.deskH - 0.04).toFixed(2)); layoutScene(); }
+  else if (a === 'lang') S.lang = S.lang === 'ko' ? 'en' : 'ko';
+  save(); ctrlDirty = infoDirty = paperDirty = true;
+}
+
+/* =========================================================
+   9. 입력 — PC 마우스/터치
+   ========================================================= */
+const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
+const dom = renderer.domElement;
+let mouseHover = -1;
+function pick(e, objs) {
+  const r = dom.getBoundingClientRect();
+  ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+  ray.setFromCamera(ndc, camera);
+  return ray.intersectObjects(objs, false)[0];
+}
+const uvUnits = uv => [uv.x * 100, (1 - uv.y) * 100];
+dom.addEventListener('pointerdown', e => {
+  if (renderer.xr.isPresenting) return;
+  initAudio();
+  const h = pick(e, [ctrlMesh, paper]); if (!h) return;
+  if (h.object === ctrlMesh) { const i = btnIndexAt(h.uv); if (i >= 0) act(btns[i].action); }
+  else if (S.mode !== 'watch' && !drawing) { beginStroke('mouse', uvUnits(h.uv), 0.5); dom.setPointerCapture(e.pointerId); }
+});
+dom.addEventListener('pointermove', e => {
+  if (renderer.xr.isPresenting) return;
+  if (drawing && drawing.owner === 'mouse') { const h = pick(e, [paper]); if (h) addPoint(uvUnits(h.uv), 0.5); return; }
+  const h = pick(e, [ctrlMesh]); mouseHover = h ? btnIndexAt(h.uv) : -1;
+  dom.style.cursor = mouseHover >= 0 ? 'pointer' : 'default';
+});
+const mouseUp = () => { if (drawing && drawing.owner === 'mouse') endStroke(); };
+dom.addEventListener('pointerup', mouseUp);
+dom.addEventListener('pointercancel', mouseUp);
+
+/* =========================================================
+   10. 입력 — Quest 컨트롤러 / 핸드트래킹
+   ========================================================= */
+const handFactory = new XRHandModelFactory();
+function makeBrush() {
+  const g = new THREE.Group();
+  const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.007, 0.009, 0.16, 12), std(0xc8a165, { roughness: 0.5 }));
+  handle.rotation.x = Math.PI / 2; handle.position.z = -0.015; g.add(handle);
+  const tipM = new THREE.Mesh(new THREE.ConeGeometry(0.011, 0.04, 12), std(0x111111, { roughness: 0.9 }));
+  tipM.rotation.x = -Math.PI / 2; tipM.position.z = -0.11; g.add(tipM);
+  return g;
+}
+for (let i = 0; i < 2; i++) {
+  const c = renderer.xr.getController(i);
+  const brush = makeBrush(); c.add(brush);
+  const tip = new THREE.Object3D(); tip.position.z = -0.13; c.add(tip);
+  const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3(0, 0, -1)]),
+    new THREE.LineBasicMaterial({ color: 0xffd28a, transparent: true, opacity: 0.6 }));
+  c.add(line);
+  c.userData = { brush, tip, line, src: null };
+  c.addEventListener('connected', e => { c.userData.src = e.data; brush.visible = !e.data.hand; });
+  c.addEventListener('disconnected', () => { c.userData.src = null; if (drawing && drawing.owner === i) endStroke(); });
+  c.addEventListener('selectstart', () => {
+    initAudio();
+    const h = xrHover[i]; if (h >= 0 && btns[h]) { act(btns[h].action); haptic(i, 0.4, 30); }
+  });
+  scene.add(c); ctrls.push(c);
+  const hand = renderer.xr.getHand(i);
+  hand.add(handFactory.createHandModel(hand, 'spheres'));
+  scene.add(hand); hands.push(hand);
+}
+function tipOf(i) {
+  const c = ctrls[i], src = c.userData.src; if (!src) return null;
+  if (src.hand) {
+    const j = hands[i].joints && hands[i].joints['index-finger-tip'];
+    return j && j.visible ? j.getWorldPosition(new THREE.Vector3()) : null;
+  }
+  return c.visible ? c.userData.tip.getWorldPosition(new THREE.Vector3()) : null;
+}
+const toUnits = L => [(L.x / PW + 0.5) * 100, (0.5 - L.y / PH) * 100];
+const pressure = z => THREE.MathUtils.clamp((0.008 - z) / 0.035, 0, 1);
+const tmpM = new THREE.Matrix4();
+function updateXR() {
+  let near = null;
+  for (let i = 0; i < 2; i++) {
+    const c = ctrls[i], line = c.userData.line;
+    const tip = tipOf(i);
+    if (!tip) { if (drawing && drawing.owner === i) endStroke(); line.visible = false; xrHover[i] = -1; continue; }
+    const L = paper.worldToLocal(tip);
+    const inside = Math.abs(L.x) < PW / 2 && Math.abs(L.y) < PH / 2;
+    if (drawing && drawing.owner === i) {
+      if (!inside || L.z > 0.018 || L.z < -0.2) endStroke();
+      else addPoint(toUnits(L), pressure(L.z));
+    } else if (!drawing && S.mode !== 'watch' && inside && L.z < 0.008 && L.z > -0.05) {
+      beginStroke(i, toUnits(L), pressure(L.z)); haptic(i, 0.35, 25);
+    }
+    const nearPaper = inside && L.z < 0.15 && L.z > -0.2;
+    if (nearPaper && (!near || L.z < near.z)) near = { x: L.x, y: L.y, z: L.z, touching: drawing && drawing.owner === i };
+    // 레이저로 버튼 가리키기
+    c.updateMatrixWorld(true);
+    tmpM.identity().extractRotation(c.matrixWorld);
+    ray.ray.origin.setFromMatrixPosition(c.matrixWorld);
+    ray.ray.direction.set(0, 0, -1).applyMatrix4(tmpM);
+    const h = ray.intersectObjects([ctrlMesh, infoMesh], false)[0];
+    if (h && h.object === ctrlMesh) {
+      xrHover[i] = btnIndexAt(h.uv); line.visible = true; line.scale.z = h.distance; line.material.opacity = 0.95;
+    } else {
+      xrHover[i] = -1; line.visible = !nearPaper; line.scale.z = h ? h.distance : 0.5; line.material.opacity = 0.35;
+    }
+  }
+  if (near && S.mode !== 'watch') {           // 붓끝 그림자 링: 높이 감 잡기용
+    ring.visible = true; ring.position.set(near.x, near.y, 0.0015);
+    const s = 1 + Math.max(0, near.z) * 30; ring.scale.set(s, s, 1);
+    ring.material.color.set(near.touching ? 0x2e9b57 : 0x2a1c10);
+  } else ring.visible = false;
+}
+
+/* =========================================================
+   11. 루프
+   ========================================================= */
+function updateHover() {
+  const s = new Set();
+  if (!renderer.xr.isPresenting && mouseHover >= 0) s.add(mouseHover);
+  if (renderer.xr.isPresenting) xrHover.forEach(h => { if (h >= 0) s.add(h); });
+  const key = [...s].sort().join(',');
+  if (key !== hoverKey) { hoverKey = key; hoverSet = s; ctrlDirty = true; }
+}
+renderer.setAnimationLoop(() => {
+  const now = performance.now();
+  if (renderer.xr.isPresenting) updateXR(); else ring.visible = false;
+  updateHover();
+  if (flash && now >= flash.until) { flash = null; paperDirty = true; }
+  if (S.mode === 'watch') paperDirty = true;
+  if (paperDirty) { compose(now); paperDirty = false; }
+  if (ctrlDirty) { drawCtrl(); ctrlTex.needsUpdate = true; ctrlDirty = false; }
+  if (infoDirty) { drawInfo(); infoTex.needsUpdate = true; infoDirty = false; }
+  renderer.render(scene, camera);
+});
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.fov = innerWidth < innerHeight ? 80 : 55;
+  camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight);
+});
+dispatchEvent(new Event('resize'));
+renderer.xr.addEventListener('sessionstart', () => { initAudio(); document.getElementById('help').style.display = 'none'; });
+renderer.xr.addEventListener('sessionend', () => { document.getElementById('help').style.display = ''; layoutScene(); });
+
+// 한글 웹폰트는 글자 범위별로 나뉘어 있어 쓰는 글자를 미리 불러옴
+const ALL = Object.values(CHARS).flat().map(c => c.ch + c.name + c.ko).join('') +
+            Object.values(T.ko).join('') + Object.values(T.en).join('') + '★☆·◀▶0123456789/';
+Promise.all([document.fonts.load(`400 40px "Noto Serif KR"`, ALL), document.fonts.load(`700 40px "Noto Serif KR"`, ALL)])
+  .then(() => { ctrlDirty = infoDirty = paperDirty = true; }).catch(() => {});
+
+layoutScene();
+resetChar();
+</script>
+</body>
+</html>
